@@ -1,4 +1,4 @@
-name: Deploy Kruidvat Agent to GitHub Pages
+name: Deploy Kruidvat Promo Price Advisor
 
 on:
   push:
@@ -11,252 +11,371 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: github-pages
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Deploy to GitHub Pages
+    name: Generate and deploy single-file app
     runs-on: ubuntu-latest
-
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Prepare site
+      - name: Generate Kruidvat AI Agent app
         shell: bash
         run: |
           set -e
-
           rm -rf _site
           mkdir -p _site
-
-          if [ -f index.html ]; then
-            echo "index.html found. Deploying repository root."
-            rsync -a \
-              --exclude='.git' \
-              --exclude='.github' \
-              --exclude='_site' \
-              ./ _site/
-          else
-            echo "No index.html found. Creating temporary Kruidvat landing page."
-
-            cat > _site/index.html <<'HTML'
+          cat > _site/index.html <<'HTML'
           <!doctype html>
           <html lang="en">
           <head>
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>Kruidvat Promo & Price Advisor Agent</title>
+            <title>Kruidvat Promo & Price Advisory AI Agent</title>
             <style>
-              :root {
-                --kruidvat-red: #e30613;
-                --kruidvat-yellow: #ffd600;
-                --dark: #1f1f1f;
-                --muted: #666;
-                --card: #ffffff;
-                --bg: #f7f7f7;
+              :root{
+                --red:#e30613;--yellow:#ffd500;--dark:#161616;--muted:#666;--bg:#f5f5f5;--card:#fff;--line:#e6e6e6;
+                --green:#16803c;--amber:#b36b00;--blue:#1e4fa3;--danger:#b00020;
               }
-
-              * {
-                box-sizing: border-box;
-              }
-
-              body {
-                margin: 0;
-                font-family: Arial, Helvetica, sans-serif;
-                background: var(--bg);
-                color: var(--dark);
-              }
-
-              header {
-                background: var(--kruidvat-red);
-                color: white;
-                padding: 28px 40px;
-                border-bottom: 8px solid var(--kruidvat-yellow);
-              }
-
-              .brand {
-                display: flex;
-                align-items: center;
-                gap: 16px;
-              }
-
-              .logo {
-                background: var(--kruidvat-yellow);
-                color: var(--kruidvat-red);
-                font-weight: 900;
-                font-size: 28px;
-                padding: 12px 18px;
-                border-radius: 10px;
-              }
-
-              main {
-                max-width: 1100px;
-                margin: 40px auto;
-                padding: 0 24px;
-              }
-
-              .hero {
-                background: white;
-                border-radius: 18px;
-                padding: 32px;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-              }
-
-              h1 {
-                margin: 0 0 12px 0;
-                font-size: 34px;
-              }
-
-              .subtitle {
-                font-size: 18px;
-                color: var(--muted);
-                max-width: 820px;
-                line-height: 1.5;
-              }
-
-              .grid {
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 18px;
-                margin-top: 28px;
-              }
-
-              .card {
-                background: var(--card);
-                border-radius: 16px;
-                padding: 22px;
-                box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-                border-top: 5px solid var(--kruidvat-red);
-              }
-
-              .metric {
-                font-size: 32px;
-                font-weight: 800;
-                color: var(--kruidvat-red);
-              }
-
-              .label {
-                margin-top: 6px;
-                color: var(--muted);
-              }
-
-              .section {
-                margin-top: 28px;
-                background: white;
-                border-radius: 18px;
-                padding: 28px;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-              }
-
-              ul {
-                line-height: 1.8;
-              }
-
-              .pill {
-                display: inline-block;
-                background: var(--kruidvat-yellow);
-                color: var(--dark);
-                padding: 8px 12px;
-                border-radius: 999px;
-                font-weight: 700;
-                margin: 4px;
-              }
-
-              footer {
-                text-align: center;
-                color: var(--muted);
-                padding: 30px;
-              }
-
-              @media (max-width: 800px) {
-                .grid {
-                  grid-template-columns: 1fr;
-                }
-
-                h1 {
-                  font-size: 28px;
-                }
-              }
+              *{box-sizing:border-box}
+              body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--dark)}
+              header{background:var(--red);color:white;border-bottom:10px solid var(--yellow);padding:22px 30px;position:sticky;top:0;z-index:10}
+              .brand{display:flex;align-items:center;justify-content:space-between;gap:20px;max-width:1440px;margin:auto}
+              .brand-left{display:flex;align-items:center;gap:16px}
+              .logo{background:var(--yellow);color:var(--red);font-weight:900;font-size:28px;letter-spacing:-1px;padding:10px 16px;border-radius:12px;box-shadow:0 3px 0 rgba(0,0,0,.2)}
+              .title h1{font-size:22px;margin:0}.title p{margin:4px 0 0;opacity:.95;font-size:13px}
+              .status-pill{background:white;color:var(--red);border-radius:999px;padding:9px 14px;font-weight:800;font-size:13px}
+              main{max-width:1440px;margin:24px auto;padding:0 20px 60px}
+              .notice{background:#fff4c1;border:1px solid #ead268;border-radius:14px;padding:14px 16px;margin:0 0 18px;font-size:14px;line-height:1.45}
+              .layout{display:grid;grid-template-columns:320px 1fr;gap:18px}
+              .panel,.card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 20px rgba(0,0,0,.05)}
+              .panel{padding:16px;align-self:start;position:sticky;top:105px;max-height:calc(100vh - 120px);overflow:auto}
+              .section-title{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:900;margin:6px 0 10px}
+              button,input,select,textarea{font:inherit}
+              button{border:0;border-radius:12px;padding:11px 14px;font-weight:800;cursor:pointer;background:var(--red);color:white;transition:.15s}
+              button:hover{filter:brightness(.96);transform:translateY(-1px)}
+              button.secondary{background:#222;color:white}button.light{background:#f1f1f1;color:#222;border:1px solid #ddd}button.warn{background:var(--amber)}
+              .button-row{display:flex;gap:8px;flex-wrap:wrap}.full{width:100%;margin:6px 0}.mini{font-size:12px;padding:7px 10px;border-radius:9px}
+              label{display:block;font-size:12px;color:var(--muted);font-weight:800;margin:12px 0 5px}
+              select,input[type=file],input[type=text]{width:100%;border:1px solid #d8d8d8;border-radius:10px;padding:10px;background:white}
+              .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
+              .kpi{background:white;border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 6px 18px rgba(0,0,0,.05)}
+              .kpi .num{font-size:30px;font-weight:900;color:var(--red);line-height:1}.kpi .lbl{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.3}
+              .grid-2{display:grid;grid-template-columns:1.25fr .75fr;gap:18px}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+              .card h2{font-size:18px;margin:0 0 12px}.card{padding:18px;margin-bottom:18px}
+              table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top}th{font-size:11px;text-transform:uppercase;color:#555;background:#fafafa;position:sticky;top:0;z-index:2}tr:hover td{background:#fff9dd}
+              .table-wrap{max-height:560px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+              .tag{display:inline-block;border-radius:999px;padding:5px 8px;font-weight:900;font-size:11px;white-space:nowrap}.tag.Price{background:#ffe1e4;color:#9b0010}.tag.Promo{background:#fff0bf;color:#7a4a00}.tag.Margin{background:#ffd7d7;color:#870000}.tag.Banner{background:#e7edff;color:#123a88}.tag.Private{background:#eee4ff;color:#4b168a}.tag.Manual{background:#eeeeee;color:#333}.tag.Opportunity{background:#dff4e7;color:#126634}
+              .risk-high{color:var(--danger);font-weight:900}.risk-med{color:var(--amber);font-weight:900}.risk-low{color:var(--green);font-weight:900}
+              .progress{height:8px;border-radius:8px;background:#eee;overflow:hidden}.bar{height:100%;background:var(--red);width:0%}
+              .doc-list,.source-list{display:flex;flex-direction:column;gap:8px}.doc{background:#fafafa;border:1px solid #e2e2e2;border-radius:10px;padding:10px;font-size:12px}.doc strong{display:block;font-size:13px;color:#222}.doc span{color:var(--muted)}
+              .drawer{background:#111;color:#fff;border-radius:16px;padding:16px;min-height:280px}.drawer h3{margin:0 0 8px;color:var(--yellow)}.drawer pre{white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;line-height:1.45;background:#1c1c1c;padding:12px;border-radius:10px;overflow:auto}.drawer .kv{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;font-size:13px}.drawer .kv div:nth-child(odd){color:#bbb;font-weight:800}.drawer a{color:var(--yellow)}
+              textarea{width:100%;min-height:260px;border:1px solid #d8d8d8;border-radius:12px;padding:12px;font-family:Consolas,monospace;font-size:12px;line-height:1.45}
+              .brief{background:#fffbe5;border-left:6px solid var(--yellow);padding:14px;border-radius:12px;white-space:pre-wrap;line-height:1.45;font-size:14px}
+              .footer-note{color:var(--muted);font-size:12px;margin-top:12px;line-height:1.4}
+              @media(max-width:1050px){.layout,.grid-2{grid-template-columns:1fr}.panel{position:relative;top:0;max-height:none}.kpis{grid-template-columns:repeat(2,1fr)}}
             </style>
           </head>
           <body>
             <header>
               <div class="brand">
-                <div class="logo">Kruidvat</div>
-                <div>
-                  <strong>AS Watson Pilot</strong><br />
-                  Promo & Price Advisor Agent
+                <div class="brand-left">
+                  <div class="logo">Kruidvat</div>
+                  <div class="title">
+                    <h1>Promo & Price Advisory AI Agent</h1>
+                    <p>AS Watson pilot | Sun Care, Baby Wipes, Oral Care | All competitors in scope</p>
+                  </div>
                 </div>
+                <div class="status-pill" id="statusPill">Ready</div>
               </div>
             </header>
-
             <main>
-              <section class="hero">
-                <h1>Kruidvat Promo & Price Advisor Agent</h1>
-                <p class="subtitle">
-                  This GitHub Pages deployment is live. Replace this temporary page with the actual AI agent frontend when ready.
-                  The intended agent compares Kruidvat product prices and promotions against competitors and advises based on
-                  margin rules, promotion logic, confidence, and human approval.
-                </p>
-
-                <div class="grid">
-                  <div class="card">
-                    <div class="metric">3</div>
-                    <div class="label">Product groups: Sun Care, Baby Wipes, Oral Care</div>
+              <div class="notice">
+                <strong>Hosted single-YAML workshop app.</strong> This page is generated by one GitHub Actions YAML file. It includes a browser-side advisory engine, synthetic Kruidvat margin data, RAG document upload metadata, promotion parsing, normalized price comparison, margin guardrails, AI action labels, dashboard alerts and Daily Price Brief export. For real live search API calls, connect a backend/proxy later; do not put API keys in GitHub Pages browser code.
+              </div>
+              <div class="layout">
+                <aside class="panel">
+                  <div class="section-title">1. Data and RAG</div>
+                  <button class="full" id="loadSyntheticBtn">Load full pilot scope</button>
+                  <label>Optional CSV upload</label>
+                  <input type="file" id="csvInput" accept=".csv" />
+                  <label>Upload RAG documents</label>
+                  <input type="file" id="ragInput" multiple accept=".txt,.md,.csv,.doc,.docx,.pdf,.xlsx" />
+                  <div class="footer-note">RAG files are tracked as grounding assets. Text, CSV and MD can be read in-browser. DOCX/PDF/XLSX are listed as uploaded assets in this static mode.</div>
+                  <div class="section-title" style="margin-top:18px">2. Filters</div>
+                  <label>Product group</label><select id="groupFilter"><option value="all">All product groups</option></select>
+                  <label>Competitor</label><select id="competitorFilter"><option value="all">All competitors</option></select>
+                  <label>AI label</label><select id="labelFilter"><option value="all">All AI labels</option></select>
+                  <label>Minimum confidence</label><select id="confidenceFilter"><option value="0">All</option><option value="70">70+</option><option value="80" selected>80+</option><option value="90">90+</option></select>
+                  <div class="section-title" style="margin-top:18px">3. Run</div>
+                  <button class="full" id="runScanBtn">Run advisory scan</button>
+                  <div class="progress"><div class="bar" id="progressBar"></div></div>
+                  <div class="button-row" style="margin-top:12px"><button class="light mini" id="exportBtn">Export CSV</button><button class="light mini" id="copyBriefBtn">Copy brief</button></div>
+                  <div class="section-title" style="margin-top:18px">Loaded documents</div>
+                  <div class="doc-list" id="docList"></div>
+                </aside>
+                <section>
+                  <div class="kpis" id="kpis"></div>
+                  <div class="grid-2">
+                    <div class="card">
+                      <h2>Priority alert dashboard</h2>
+                      <div class="table-wrap"><table id="alertTable"><thead><tr><th>Product</th><th>Group</th><th>Competitor</th><th>AI label</th><th>Gap</th><th>Margin</th><th>Confidence</th><th>Action</th></tr></thead><tbody></tbody></table></div>
+                    </div>
+                    <div class="drawer" id="evidenceDrawer">
+                      <h3>Evidence drawer</h3>
+                      <p>Select an alert to inspect source, promotion interpretation, normalization, margin reasoning and human check.</p>
+                    </div>
                   </div>
-                  <div class="card">
-                    <div class="metric">13</div>
-                    <div class="label">Competitors in scope</div>
+                  <div class="grid-2">
+                    <div class="card"><h2>Daily Price Brief</h2><div class="brief" id="dailyBrief">Load data and run the advisory scan.</div></div>
+                    <div class="card"><h2>Scope coverage</h2><div id="coverage"></div></div>
                   </div>
-                  <div class="card">
-                    <div class="metric">7</div>
-                    <div class="label">AI advisory labels</div>
-                  </div>
-                </div>
-              </section>
-
-              <section class="section">
-                <h2>Required AI advisory labels</h2>
-                <span class="pill">Price Alert</span>
-                <span class="pill">Promo Attack</span>
-                <span class="pill">Margin Block</span>
-                <span class="pill">Banner Alignment Alert</span>
-                <span class="pill">Private Label Value Gap</span>
-                <span class="pill">Manual Review</span>
-                <span class="pill">Opportunity</span>
-              </section>
-
-              <section class="section">
-                <h2>What the real agent should do</h2>
-                <ul>
-                  <li>Use uploaded Kruidvat category, pricing, promotion and margin documents as grounded input.</li>
-                  <li>Search live competitor sources for current prices, promotions and availability.</li>
-                  <li>Interpret promotions such as 1+1 free, second half price, bundles and loyalty offers.</li>
-                  <li>Check whether a price response is allowed under synthetic margin and price-floor rules.</li>
-                  <li>Generate a dashboard with alerts, confidence, evidence sources and recommended next action.</li>
-                  <li>Never change prices automatically. Always require human approval.</li>
-                </ul>
-              </section>
+                  <div class="card"><h2>Generated master prompt capsule</h2><textarea id="promptCapsule" spellcheck="false"></textarea></div>
+                </section>
+              </div>
             </main>
+            <script>
+              const PRODUCT_GROUPS = ["Sun Care","Baby Wipes","Oral Care"];
+              const COMPETITORS = ["Etos","Albert Heijn","Trekpleister","DA","De Online Drogist","Drogist.nl","Plein.nl","bol.com","Amazon.nl","Action","Die Grenze","Jumbo","PLUS"];
+              const LABELS = ["Price Alert","Promo Attack","Margin Block","Banner Alignment Alert","Private Label Value Gap","Manual Review","Opportunity"];
+              const SOURCE_BASE = {
+                "Etos":"https://www.etos.nl/zoeken?q=","Albert Heijn":"https://www.ah.nl/zoeken?query=","Trekpleister":"https://www.trekpleister.nl/zoeken?text=","DA":"https://www.da.nl/search?text=","De Online Drogist":"https://www.deonlinedrogist.nl/catalogsearch/result/?q=","Drogist.nl":"https://www.drogist.nl/search?search=","Plein.nl":"https://www.plein.nl/zoeken?query=","bol.com":"https://www.bol.com/nl/nl/s/?searchtext=","Amazon.nl":"https://www.amazon.nl/s?k=","Action":"https://www.action.com/nl-nl/search/?q=","Die Grenze":"https://www.diegrenze.nl/search?q=","Jumbo":"https://www.jumbo.com/zoeken?searchTerms=","PLUS":"https://www.plus.nl/zoekresultaten?SearchTerm="
+              };
+              let products = [];
+              let ragDocs = [];
+              let alerts = [];
+              let selectedAlert = null;
 
-            <footer>
-              Hosted on GitHub Pages.
-            </footer>
+              const euro = n => new Intl.NumberFormat('nl-NL',{style:'currency',currency:'EUR'}).format(Number(n||0));
+              const pct = n => `${Number(n||0).toFixed(1)}%`;
+              const hash = s => { let h=2166136261; for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)} return Math.abs(h>>>0); };
+              const seeded = s => (hash(String(s)) % 10000)/10000;
+              function setStatus(t){document.getElementById('statusPill').textContent=t}
+              function round2(n){return Math.round(Number(n)*100)/100}
+
+              function generateProducts(){
+                const out=[];
+                const sunBrands=["Kruidvat Solait","NIVEA Sun","Garnier Ambre Solaire","Biodermal","Australian Gold","La Roche-Posay","Vision","Naif","Lancaster","Piz Buin"];
+                const sunForms=["Spray","Lotion","Face Cream","Kids Spray","After Sun","Oil Spray"];
+                const spfs=["SPF15","SPF30","SPF50","SPF50+"];
+                for(let i=1;i<=245;i++){
+                  const brand=sunBrands[i%sunBrands.length], form=sunForms[i%sunForms.length], spf=spfs[i%spfs.length], size=[50,100,150,200,250][i%5];
+                  const price=round2(6.99+(i%24)*1.15+(brand.includes('La Roche')?10:0)+(brand.includes('Kruidvat')?-2:0));
+                  const ex=price/1.21; const cost=round2(ex*(brand.includes('Kruidvat')?.46:.62));
+                  out.push({sku:`SC-${String(i).padStart(3,'0')}`,product_group:'Sun Care',brand,name:`${brand} ${spf} ${form} ${size}ml`,variant:`${spf} ${form}`,size,unit:'ml',unit_count:size,price_inc_vat:price,cost_ex_vat:cost,min_margin_pct:brand.includes('Kruidvat')?35:20,price_floor_ex_vat:round2(cost*1.12),kvi:i%13===0,private_label:brand.includes('Kruidvat'),promo_lock:i%29===0,supplier_funding:round2((i%7)*0.08)});
+                }
+                const wipeBrands=["Kruidvat","Pampers","WaterWipes","Zwitsal","Naif","Huggies","Neutral"];
+                for(let i=1;i<=42;i++){
+                  const brand=wipeBrands[i%wipeBrands.length], packs=[1,4,6,9,12,24][i%6], wipes=[48,52,56,60,65,72][i%6];
+                  const total=packs*wipes; const price=round2(1.49*packs+(brand==='WaterWipes'?7.5:0)+(brand==='Pampers'?4.5:0)+(brand==='Kruidvat'?-0.45*packs:0));
+                  const ex=price/1.21; const cost=round2(ex*(brand==='Kruidvat'?.50:.68));
+                  out.push({sku:`BW-${String(i).padStart(3,'0')}`,product_group:'Baby Wipes',brand,name:`${brand} Sensitive Baby Wipes ${packs} x ${wipes} wipes`,variant:'Sensitive',size:total,unit:'wipe',unit_count:total,price_inc_vat:price,cost_ex_vat:cost,min_margin_pct:brand==='Kruidvat'?35:18,price_floor_ex_vat:round2(cost*1.10),kvi:i%5===0,private_label:brand==='Kruidvat',promo_lock:i%11===0,supplier_funding:round2((i%6)*0.05)});
+                }
+                const oralBrands=["Kruidvat","Sensodyne","Oral-B","Elmex","Colgate","Parodontax","Listerine","Jordan","Aquafresh","Zendium"];
+                const oralForms=["Toothpaste","Mouthwash","Brush Heads","Toothbrush","Whitening Toothpaste","Sensitive Toothpaste"];
+                for(let i=1;i<=168;i++){
+                  const brand=oralBrands[i%oralBrands.length], form=oralForms[i%oralForms.length];
+                  const unit=form.includes('Brush')||form.includes('Toothbrush')?'piece':'ml';
+                  const size=unit==='piece'?[1,2,4,6][i%4]:[75,100,250,500][i%4];
+                  const price=round2(1.79+(i%18)*0.65+(brand==='Oral-B'?8:0)+(brand==='Sensodyne'?3.5:0)+(brand==='Kruidvat'?-1:0));
+                  const ex=price/1.21; const cost=round2(ex*(brand==='Kruidvat'?.45:.64));
+                  out.push({sku:`OC-${String(i).padStart(3,'0')}`,product_group:'Oral Care',brand,name:`${brand} ${form} ${size}${unit==='ml'?'ml':' pcs'}`,variant:form,size,unit,unit_count:size,price_inc_vat:price,cost_ex_vat:cost,min_margin_pct:brand==='Kruidvat'?38:22,price_floor_ex_vat:round2(cost*1.12),kvi:i%17===0,private_label:brand==='Kruidvat',promo_lock:i%23===0,supplier_funding:round2((i%5)*0.07)});
+                }
+                return out;
+              }
+
+              function effectivePrice(price,promo){
+                if(promo==='1+1 free') return price/2;
+                if(promo==='2nd half price') return price*.75;
+                if(promo==='3 for 2') return price*(2/3);
+                if(promo==='25% off') return price*.75;
+                if(promo==='Loyalty only') return price*.85;
+                return price;
+              }
+              function promoText(p){
+                return {"1+1 free":"1+1 free. Effective price only when buying 2.","2nd half price":"Second item half price. Effective price assumes 2 items.","3 for 2":"3 for 2 multi-buy. Effective price assumes 3 items.","25% off":"25% off current online price.","Loyalty only":"Loyalty-only discount. Not a general shelf price.","Out of stock":"Out of stock or unavailable online.","None":"No visible promotion."}[p]||p;
+              }
+              function normalized(price,product){
+                if(product.product_group==='Sun Care') return price/product.size*100;
+                if(product.product_group==='Baby Wipes') return price/product.unit_count;
+                if(product.product_group==='Oral Care') return product.unit==='ml'?price/product.size*75:price/product.unit_count;
+                return price;
+              }
+              function normLabel(product){
+                if(product.product_group==='Sun Care') return 'per 100ml';
+                if(product.product_group==='Baby Wipes') return 'per wipe';
+                if(product.product_group==='Oral Care') return product.unit==='ml'?'per 75ml':'per piece';
+                return 'per unit';
+              }
+              function competitorSignal(product,competitor){
+                const r=seeded(product.sku+competitor);
+                const compIndex=COMPETITORS.indexOf(competitor);
+                let factor=.82+(r*.42);
+                if(['Action','Die Grenze'].includes(competitor)) factor-=.08;
+                if(['bol.com','Amazon.nl'].includes(competitor)) factor+=.04;
+                if(competitor==='Trekpleister') factor=.94+(r*.18);
+                if(product.private_label && !['Trekpleister','Action','Die Grenze'].includes(competitor)) factor+=.10;
+                let price=round2(Math.max(.49,product.price_inc_vat*factor));
+                const promoOptions=['None','1+1 free','2nd half price','3 for 2','25% off','Loyalty only','Out of stock'];
+                let promo=promoOptions[hash(competitor+product.sku+'promo')%promoOptions.length];
+                if(['bol.com','Amazon.nl'].includes(competitor) && r<.32) promo='Marketplace seller';
+                if(product.product_group==='Sun Care' && r>.72) promo='1+1 free';
+                if(product.product_group==='Baby Wipes' && r>.68) promo='3 for 2';
+                if(promo==='Marketplace seller'){}
+                const available=promo!=='Out of stock';
+                const eff=round2(effectivePrice(price,promo));
+                let confidence=78+Math.floor(r*20);
+                if(competitor==='Trekpleister') confidence+=4;
+                if(['bol.com','Amazon.nl'].includes(competitor)) confidence-=10;
+                if(product.private_label && !['Trekpleister','Action','Die Grenze'].includes(competitor)) confidence-=22;
+                if(promo==='Out of stock') confidence-=12;
+                confidence=Math.max(45,Math.min(99,confidence));
+                return {competitor,regular_price:price,effective_price:eff,promo,available,confidence,source_url:(SOURCE_BASE[competitor]||'https://www.google.com/search?q=')+encodeURIComponent(product.brand+' '+product.variant+' '+product.size),timestamp:new Date().toISOString()};
+              }
+              function classify(product,sig){
+                const currentNorm=normalized(product.price_inc_vat,product);
+                const compNorm=normalized(sig.effective_price,product);
+                const gap=((compNorm-currentNorm)/currentNorm)*100;
+                const matchEx=sig.effective_price/1.21;
+                const marginPct=((matchEx-product.cost_ex_vat+product.supplier_funding)/matchEx)*100;
+                const floorInc=product.price_floor_ex_vat*1.21;
+                let label='Opportunity', reason='', action='', risk='low', human='Review source freshness and stock before commercial action.';
+                if(!sig.available || sig.confidence<75 || sig.promo==='Marketplace seller'){
+                  label='Manual Review';risk='med';reason='Evidence, stock, seller or match quality is uncertain.';action='Do not advise price response. Validate pack size, seller, stock and source manually.';
+                } else if(sig.competitor==='Trekpleister' && gap < -2){
+                  label='Banner Alignment Alert';risk='med';reason='Trekpleister is an AS Watson internal banner benchmark and appears cheaper.';action='Route to internal banner alignment review, not external competitor response.';
+                } else if(product.private_label && !['Trekpleister','Action','Die Grenze'].includes(sig.competitor) && gap < 8){
+                  label='Private Label Value Gap';risk='med';reason='Private-label value gap versus external alternative is not clear enough.';action='Review value positioning, PDP messaging or private-label price architecture.';
+                } else if((matchEx < product.price_floor_ex_vat || marginPct < product.min_margin_pct) && gap < 0){
+                  label='Margin Block';risk='high';reason='Matching competitor effective price would breach synthetic minimum margin or price floor.';action='Do not match. Consider supplier-funded promo, coupon, bundle or approval path.';
+                } else if(['1+1 free','2nd half price','3 for 2','25% off','Loyalty only'].includes(sig.promo) && gap < -1.5){
+                  label='Promo Attack';risk='high';reason='Competitor gap is promotion-driven, not necessarily a structural price gap.';action='Avoid permanent price change. Consider temporary campaign, coupon, bundle or media response.';
+                } else if(gap < -4){
+                  label='Price Alert';risk='high';reason='High-confidence external match appears materially cheaper.';action='Consider tactical response only if margin and price floor remain safe.';
+                } else if(gap > 5 && marginPct >= product.min_margin_pct){
+                  label='Opportunity';risk='low';reason='Kruidvat is competitively positioned and synthetic margin remains healthy.';action='Keep price; consider increasing visibility or using as proof point.';
+                } else {
+                  label='Manual Review';risk='med';reason='Signal is not strong enough for clear action.';action='Monitor and review if repeated across competitors.';
+                }
+                return {label,reason,action,risk,human,gap,marginPct,marginStatus:(matchEx<product.price_floor_ex_vat?'Below price floor':(marginPct<product.min_margin_pct?'Below min margin':'Margin safe')),currentNorm,compNorm,unit: normLabel(product)};
+              }
+
+              function runScan(){
+                if(!products.length) products=generateProducts();
+                setStatus('Scanning');
+                const bar=document.getElementById('progressBar');bar.style.width='5%';
+                const out=[]; let done=0,total=products.length*COMPETITORS.length;
+                for(const p of products){
+                  for(const c of COMPETITORS){
+                    const sig=competitorSignal(p,c); const adv=classify(p,sig);
+                    if(adv.label!=='Opportunity' || Math.abs(adv.gap)>5 || p.kvi){
+                      out.push({...adv, product:p, signal:sig, id:p.sku+'-'+c});
+                    }
+                    done++; if(done%400===0) bar.style.width=Math.min(95,Math.round(done/total*100))+'%';
+                  }
+                }
+                const score = a => ({'Margin Block':100,'Price Alert':92,'Promo Attack':88,'Banner Alignment Alert':76,'Private Label Value Gap':70,'Manual Review':62,'Opportunity':20}[a.label]||10) + Math.abs(a.gap)/2 + (a.product.kvi?10:0);
+                alerts=out.sort((a,b)=>score(b)-score(a));
+                bar.style.width='100%'; setTimeout(()=>bar.style.width='0%',900); setStatus('Scan complete');
+                renderAll();
+              }
+              function filteredAlerts(){
+                const gf=document.getElementById('groupFilter').value, cf=document.getElementById('competitorFilter').value, lf=document.getElementById('labelFilter').value, min=Number(document.getElementById('confidenceFilter').value);
+                return alerts.filter(a=>(gf==='all'||a.product.product_group===gf)&&(cf==='all'||a.signal.competitor===cf)&&(lf==='all'||a.label===lf)&&a.signal.confidence>=min).slice(0,250);
+              }
+              function labelClass(label){return label.split(' ')[0]}
+              function riskClass(r){return r==='high'?'risk-high':r==='med'?'risk-med':'risk-low'}
+              function renderTable(){
+                const rows=filteredAlerts(); const tbody=document.querySelector('#alertTable tbody'); tbody.innerHTML='';
+                rows.forEach((a,i)=>{ const tr=document.createElement('tr'); tr.style.cursor='pointer'; tr.onclick=()=>{selectedAlert=a;renderDrawer()};
+                  tr.innerHTML=`<td><strong>${a.product.name}</strong><br><span style="color:#777">${a.product.sku} | ${a.product.brand}</span></td><td>${a.product.product_group}</td><td>${a.signal.competitor}</td><td><span class="tag ${labelClass(a.label)}">${a.label}</span></td><td class="${a.gap<0?'risk-high':'risk-low'}">${pct(a.gap)}</td><td class="${a.marginStatus==='Margin safe'?'risk-low':'risk-high'}">${a.marginStatus}<br>${pct(a.marginPct)}</td><td>${a.signal.confidence}%</td><td>${a.action}</td>`;
+                  tbody.appendChild(tr); if(i===0 && !selectedAlert){selectedAlert=a;}
+                });
+                renderDrawer();
+              }
+              function renderDrawer(){
+                const d=document.getElementById('evidenceDrawer');
+                if(!selectedAlert){d.innerHTML='<h3>Evidence drawer</h3><p>Select an alert to inspect source evidence and reasoning.</p>';return}
+                const a=selectedAlert,p=a.product,s=a.signal;
+                d.innerHTML=`<h3>${a.label}</h3><div class="kv"><div>Product</div><div>${p.name}</div><div>Competitor</div><div>${s.competitor}</div><div>Source</div><div><a href="${s.source_url}" target="_blank">Open public source/search</a></div><div>Timestamp</div><div>${s.timestamp}</div><div>Kruidvat price</div><div>${euro(p.price_inc_vat)} | ${euro(a.currentNorm)} ${a.unit}</div><div>Competitor price</div><div>${euro(s.regular_price)} regular | ${euro(s.effective_price)} effective | ${euro(a.compNorm)} ${a.unit}</div><div>Promotion</div><div>${promoText(s.promo)}</div><div>Margin check</div><div>${a.marginStatus}; if matched: ${pct(a.marginPct)} vs min ${pct(p.min_margin_pct)}</div><div>Confidence</div><div>${s.confidence}%</div><div>Human check</div><div>${a.human}</div></div><pre>${a.reason}\n\nRecommended action: ${a.action}\n\nPolicy grounding: no automatic price change; internal synthetic policy overrides web signal; margin and price floor guardrails must pass before advice.</pre>`;
+              }
+              function renderKpis(){
+                const counts=Object.fromEntries(LABELS.map(l=>[l,alerts.filter(a=>a.label===l).length]));
+                const groups=new Set(products.map(p=>p.product_group)); const filt=filteredAlerts();
+                const k=[['Products',products.length],['Product groups',groups.size+'/3'],['Competitors',COMPETITORS.length],['Alerts',alerts.length],['High risk',alerts.filter(a=>a.risk==='high').length],['Filtered rows',filt.length]];
+                document.getElementById('kpis').innerHTML=k.map(x=>`<div class="kpi"><div class="num">${x[1]}</div><div class="lbl">${x[0]}</div></div>`).join('');
+              }
+              function renderCoverage(){
+                const byGroup=PRODUCT_GROUPS.map(g=>`${g}: ${products.filter(p=>p.product_group===g).length} products`).join('<br>');
+                const byLabel=LABELS.map(l=>`<span class="tag ${labelClass(l)}">${l}: ${alerts.filter(a=>a.label===l).length}</span>`).join(' ');
+                document.getElementById('coverage').innerHTML=`<p><strong>Mandatory product groups</strong><br>${byGroup}</p><p><strong>All competitors in scope</strong><br>${COMPETITORS.join(', ')}</p><p><strong>AI labels generated</strong><br>${byLabel}</p>`;
+              }
+              function renderBrief(){
+                if(!alerts.length){document.getElementById('dailyBrief').textContent='Load data and run the advisory scan.';return}
+                const top=alerts.slice(0,5); const counts=Object.fromEntries(LABELS.map(l=>[l,alerts.filter(a=>a.label===l).length]));
+                const lines=[];
+                lines.push('Daily Promo & Price Brief - Kruidvat pilot');
+                lines.push('');
+                lines.push(`Scope: ${products.length} Kruidvat products across Sun Care, Baby Wipes and Oral Care. ${COMPETITORS.length} competitors are in scope.`);
+                lines.push(`Alert summary: Price Alert ${counts['Price Alert']}, Promo Attack ${counts['Promo Attack']}, Margin Block ${counts['Margin Block']}, Banner Alignment ${counts['Banner Alignment Alert']}, Private Label Value Gap ${counts['Private Label Value Gap']}, Manual Review ${counts['Manual Review']}, Opportunity ${counts['Opportunity']}.`);
+                lines.push('');
+                lines.push('Top priority actions:');
+                top.forEach((a,i)=>lines.push(`${i+1}. ${a.product.name} vs ${a.signal.competitor}: ${a.label}. ${a.action} Confidence ${a.signal.confidence}%.`));
+                lines.push('');
+                lines.push('Human-in-the-loop guardrail: the agent never changes prices automatically. Verify source, stock, promotion terms, margin and approval path before acting.');
+                document.getElementById('dailyBrief').textContent=lines.join('\n');
+              }
+              function renderPrompt(){
+                const docs=ragDocs.map(d=>`- ${d.name} (${d.type}, ${d.size} bytes)`).join('\n')||'- No RAG documents uploaded yet';
+                document.getElementById('promptCapsule').value=`ROLE AND GOAL\nYou are the Kruidvat Promo & Price Advisory AI Agent for AS Watson. Turn public competitor price and promotion signals into margin-aware, policy-grounded human advice. Never change prices automatically.\n\nBUSINESS CONTEXT\nKruidvat is under pressure from changing competitor prices and promotion mechanics. Consumers report lower prices elsewhere. Purchase cost, supplier funding, pack sizes, minimum margin and price floors make fast response difficult.\n\nSOURCES\nUse structured Kruidvat product and synthetic margin data for arithmetic. Use uploaded RAG policy documents for rules and guardrails. Use public competitor sources only as evidence for current competitor price, promotion and availability.\n\nLOADED RAG ASSETS\n${docs}\n\nMANDATORY SCOPE\nProduct groups: Sun Care, Baby Wipes, Oral Care. Competitors: ${COMPETITORS.join(', ')}.\n\nAI ACTION LABELS\n${LABELS.join(', ')}.\n\nRULES\n1. Internal synthetic policy overrides web signal.\n2. No advice below price floor or minimum margin.\n3. Multi-buy and loyalty promotions are not structural price changes.\n4. Trekpleister is an internal banner benchmark.\n5. Marketplace seller signals require manual review unless evidence is very strong.\n6. Private-label alternatives are functional benchmarks, not exact SKU matches.\n\nOUTPUT SCHEMA\nDashboard KPIs, alert table, evidence drawer, promotion interpretation, normalized price, margin guardrail, AI label, recommended action, confidence and Daily Price Brief.\n\nSELF-CHECK\nFlag missing data, stale sources, uncertain matches, unclear pack sizes, out-of-stock products, marketplace seller risk and unsupported claims.`;
+              }
+              function renderDocs(){
+                const docList=document.getElementById('docList');
+                const base=[{name:'Synthetic price list with margin rules',type:'Generated structured data',size:'in-browser'},{name:'Pricing and margin policy',type:'RAG policy',size:'embedded rules'},{name:'Promotion and matching rules',type:'RAG policy',size:'embedded rules'}];
+                const all=base.concat(ragDocs);
+                docList.innerHTML=all.map(d=>`<div class="doc"><strong>${d.name}</strong><span>${d.type} | ${d.size}</span></div>`).join('');
+              }
+              function renderFilters(){
+                const gf=document.getElementById('groupFilter'), cf=document.getElementById('competitorFilter'), lf=document.getElementById('labelFilter');
+                if(gf.options.length===1) PRODUCT_GROUPS.forEach(g=>gf.insertAdjacentHTML('beforeend',`<option>${g}</option>`));
+                if(cf.options.length===1) COMPETITORS.forEach(c=>cf.insertAdjacentHTML('beforeend',`<option>${c}</option>`));
+                if(lf.options.length===1) LABELS.forEach(l=>lf.insertAdjacentHTML('beforeend',`<option>${l}</option>`));
+              }
+              function renderAll(){renderFilters();renderKpis();renderTable();renderCoverage();renderBrief();renderPrompt();renderDocs();}
+              function exportCsv(){
+                const rows=filteredAlerts();
+                const header=['sku','product','group','competitor','label','gap_pct','margin_status','margin_pct','confidence','promotion','kruidvat_price','competitor_effective_price','action','source_url'];
+                const csv=[header.join(',')].concat(rows.map(a=>[a.product.sku,a.product.name,a.product.product_group,a.signal.competitor,a.label,a.gap.toFixed(2),a.marginStatus,a.marginPct.toFixed(2),a.signal.confidence,a.signal.promo,a.product.price_inc_vat,a.signal.effective_price,a.action,a.signal.source_url].map(v=>'"'+String(v).replaceAll('"','""')+'"').join(','))).join('\n');
+                const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='kruidvat_price_advisor_alerts.csv'; a.click(); URL.revokeObjectURL(url);
+              }
+              function parseCsv(text){
+                const lines=text.trim().split(/\r?\n/); if(lines.length<2) return [];
+                const headers=lines[0].split(',').map(h=>h.trim());
+                return lines.slice(1).map(line=>{ const vals=line.split(','); const obj={}; headers.forEach((h,i)=>obj[h]=vals[i]); return obj; });
+              }
+              document.getElementById('loadSyntheticBtn').onclick=()=>{products=generateProducts();alerts=[];selectedAlert=null;setStatus('Data loaded');renderAll();};
+              document.getElementById('runScanBtn').onclick=runScan;
+              document.getElementById('exportBtn').onclick=exportCsv;
+              document.getElementById('copyBriefBtn').onclick=async()=>{await navigator.clipboard.writeText(document.getElementById('dailyBrief').textContent);setStatus('Brief copied')};
+              document.getElementById('csvInput').onchange=e=>{const file=e.target.files[0]; if(!file)return; const reader=new FileReader(); reader.onload=()=>{try{const rows=parseCsv(reader.result); if(rows.length){ragDocs.push({name:file.name,type:'Uploaded CSV',size:file.size}); setStatus('CSV noted'); renderAll();}}catch(err){alert('CSV could not be parsed in browser mode. Synthetic data remains active.')}}; reader.readAsText(file);};
+              document.getElementById('ragInput').onchange=e=>{[...e.target.files].forEach(file=>{const item={name:file.name,type:'Uploaded RAG document',size:file.size}; ragDocs.push(item); if(/\.(txt|md|csv)$/i.test(file.name)){const r=new FileReader(); r.onload=()=>{item.text=String(r.result).slice(0,2000); renderAll();}; r.readAsText(file);} }); setStatus('RAG uploaded'); renderAll();};
+              ['groupFilter','competitorFilter','labelFilter','confidenceFilter'].forEach(id=>document.getElementById(id).addEventListener('change',renderAll));
+              products=generateProducts();
+              renderAll();
+            </script>
           </body>
           </html>
           HTML
-          fi
-
           touch _site/.nojekyll
 
       - name: Upload GitHub Pages artifact
