@@ -11,16 +11,13 @@ permissions:
   pages: write
   id-token: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 concurrency:
   group: github-pages
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Build and deploy
+    name: Deploy to GitHub Pages
     runs-on: ubuntu-latest
 
     environment:
@@ -29,104 +26,244 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Configure GitHub Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@v5
 
-      - name: Set up Node.js
-        if: ${{ hashFiles('package.json') != '' }}
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Build site
+      - name: Prepare site
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
-          REPO_NAME="${GITHUB_REPOSITORY#*/}"
-          if [ "$REPO_NAME" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
-            BASE_PATH="/"
-          else
-            BASE_PATH="/${REPO_NAME}/"
-          fi
+          rm -rf _site
+          mkdir -p _site
 
-          echo "GitHub Pages base path: $BASE_PATH"
-
-          if [ -f package.json ]; then
-            corepack enable || true
-
-            if [ -f pnpm-lock.yaml ]; then
-              pnpm install --frozen-lockfile
-            elif [ -f yarn.lock ]; then
-              yarn install --frozen-lockfile
-            elif [ -f package-lock.json ]; then
-              npm ci
-            else
-              npm install
-            fi
-
-            if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
-              if [ -f vite.config.js ] || [ -f vite.config.ts ] || grep -q '"vite"' package.json; then
-                if [ -f pnpm-lock.yaml ]; then
-                  pnpm run build -- --base="$BASE_PATH"
-                elif [ -f yarn.lock ]; then
-                  yarn build --base "$BASE_PATH"
-                else
-                  npm run build -- --base="$BASE_PATH"
-                fi
-              else
-                if [ -f pnpm-lock.yaml ]; then
-                  pnpm run build
-                elif [ -f yarn.lock ]; then
-                  yarn build
-                else
-                  npm run build
-                fi
-              fi
-            fi
-          fi
-
-          if [ -d dist ]; then
-            SITE_DIR="dist"
-          elif [ -d build ]; then
-            SITE_DIR="build"
-          elif [ -d out ]; then
-            SITE_DIR="out"
-          elif [ -d public ] && [ -f public/index.html ]; then
-            rm -rf dist
-            mkdir -p dist
-            cp -R public/. dist/
-            SITE_DIR="dist"
-          elif [ -f index.html ]; then
-            rm -rf dist
-            mkdir -p dist
+          if [ -f index.html ]; then
+            echo "index.html found. Deploying repository root."
             rsync -a \
               --exclude='.git' \
               --exclude='.github' \
-              --exclude='node_modules' \
-              --exclude='dist' \
-              ./ dist/
-            SITE_DIR="dist"
+              --exclude='_site' \
+              ./ _site/
           else
-            echo "No deployable site found. Expected one of: dist/, build/, out/, public/index.html, or index.html."
-            exit 1
+            echo "No index.html found. Creating temporary Kruidvat landing page."
+
+            cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Kruidvat Promo & Price Advisor Agent</title>
+            <style>
+              :root {
+                --kruidvat-red: #e30613;
+                --kruidvat-yellow: #ffd600;
+                --dark: #1f1f1f;
+                --muted: #666;
+                --card: #ffffff;
+                --bg: #f7f7f7;
+              }
+
+              * {
+                box-sizing: border-box;
+              }
+
+              body {
+                margin: 0;
+                font-family: Arial, Helvetica, sans-serif;
+                background: var(--bg);
+                color: var(--dark);
+              }
+
+              header {
+                background: var(--kruidvat-red);
+                color: white;
+                padding: 28px 40px;
+                border-bottom: 8px solid var(--kruidvat-yellow);
+              }
+
+              .brand {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+              }
+
+              .logo {
+                background: var(--kruidvat-yellow);
+                color: var(--kruidvat-red);
+                font-weight: 900;
+                font-size: 28px;
+                padding: 12px 18px;
+                border-radius: 10px;
+              }
+
+              main {
+                max-width: 1100px;
+                margin: 40px auto;
+                padding: 0 24px;
+              }
+
+              .hero {
+                background: white;
+                border-radius: 18px;
+                padding: 32px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+              }
+
+              h1 {
+                margin: 0 0 12px 0;
+                font-size: 34px;
+              }
+
+              .subtitle {
+                font-size: 18px;
+                color: var(--muted);
+                max-width: 820px;
+                line-height: 1.5;
+              }
+
+              .grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 18px;
+                margin-top: 28px;
+              }
+
+              .card {
+                background: var(--card);
+                border-radius: 16px;
+                padding: 22px;
+                box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+                border-top: 5px solid var(--kruidvat-red);
+              }
+
+              .metric {
+                font-size: 32px;
+                font-weight: 800;
+                color: var(--kruidvat-red);
+              }
+
+              .label {
+                margin-top: 6px;
+                color: var(--muted);
+              }
+
+              .section {
+                margin-top: 28px;
+                background: white;
+                border-radius: 18px;
+                padding: 28px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+              }
+
+              ul {
+                line-height: 1.8;
+              }
+
+              .pill {
+                display: inline-block;
+                background: var(--kruidvat-yellow);
+                color: var(--dark);
+                padding: 8px 12px;
+                border-radius: 999px;
+                font-weight: 700;
+                margin: 4px;
+              }
+
+              footer {
+                text-align: center;
+                color: var(--muted);
+                padding: 30px;
+              }
+
+              @media (max-width: 800px) {
+                .grid {
+                  grid-template-columns: 1fr;
+                }
+
+                h1 {
+                  font-size: 28px;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            <header>
+              <div class="brand">
+                <div class="logo">Kruidvat</div>
+                <div>
+                  <strong>AS Watson Pilot</strong><br />
+                  Promo & Price Advisor Agent
+                </div>
+              </div>
+            </header>
+
+            <main>
+              <section class="hero">
+                <h1>Kruidvat Promo & Price Advisor Agent</h1>
+                <p class="subtitle">
+                  This GitHub Pages deployment is live. Replace this temporary page with the actual AI agent frontend when ready.
+                  The intended agent compares Kruidvat product prices and promotions against competitors and advises based on
+                  margin rules, promotion logic, confidence, and human approval.
+                </p>
+
+                <div class="grid">
+                  <div class="card">
+                    <div class="metric">3</div>
+                    <div class="label">Product groups: Sun Care, Baby Wipes, Oral Care</div>
+                  </div>
+                  <div class="card">
+                    <div class="metric">13</div>
+                    <div class="label">Competitors in scope</div>
+                  </div>
+                  <div class="card">
+                    <div class="metric">7</div>
+                    <div class="label">AI advisory labels</div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="section">
+                <h2>Required AI advisory labels</h2>
+                <span class="pill">Price Alert</span>
+                <span class="pill">Promo Attack</span>
+                <span class="pill">Margin Block</span>
+                <span class="pill">Banner Alignment Alert</span>
+                <span class="pill">Private Label Value Gap</span>
+                <span class="pill">Manual Review</span>
+                <span class="pill">Opportunity</span>
+              </section>
+
+              <section class="section">
+                <h2>What the real agent should do</h2>
+                <ul>
+                  <li>Use uploaded Kruidvat category, pricing, promotion and margin documents as grounded input.</li>
+                  <li>Search live competitor sources for current prices, promotions and availability.</li>
+                  <li>Interpret promotions such as 1+1 free, second half price, bundles and loyalty offers.</li>
+                  <li>Check whether a price response is allowed under synthetic margin and price-floor rules.</li>
+                  <li>Generate a dashboard with alerts, confidence, evidence sources and recommended next action.</li>
+                  <li>Never change prices automatically. Always require human approval.</li>
+                </ul>
+              </section>
+            </main>
+
+            <footer>
+              Hosted on GitHub Pages.
+            </footer>
+          </body>
+          </html>
+          HTML
           fi
 
-          touch "$SITE_DIR/.nojekyll"
-          if [ -f "$SITE_DIR/index.html" ]; then
-            cp "$SITE_DIR/index.html" "$SITE_DIR/404.html"
-          fi
+          touch _site/.nojekyll
 
-          echo "SITE_DIR=$SITE_DIR" >> "$GITHUB_ENV"
-          echo "Deploying folder: $SITE_DIR"
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: ${{ env.SITE_DIR }}
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v4
