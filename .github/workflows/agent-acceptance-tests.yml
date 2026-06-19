@@ -1,307 +1,78 @@
-name: Kruidvat Agent Acceptance Tests
+name: Deploy Kruidvat Agent to GitHub Pages
 
 on:
-  workflow_dispatch:
-    inputs:
-      live_url:
-        description: "Hosted app URL, for example https://your-agent.vercel.app"
-        required: true
-        type: string
-      strict_functional_tests:
-        description: "Use true only if your app exposes POST /api/agent/acceptance"
-        required: true
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
-      test_endpoint:
-        description: "Functional test endpoint"
-        required: true
-        default: "/api/agent/acceptance"
-        type: string
-
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
 
 jobs:
-  agent-acceptance-tests:
+  build:
+    name: Build app
     runs-on: ubuntu-latest
 
-    env:
-      ACCEPTANCE_SPEC_JSON: >-
-        {
-          "case_name": "AS Watson Kruidvat Promo & Price Advisor Agent",
-          "product_groups_required": [
-            "Sun Care",
-            "Baby Wipes",
-            "Oral Care"
-          ],
-          "competitors_required": [
-            "Etos",
-            "Albert Heijn",
-            "Trekpleister",
-            "DA",
-            "De Online Drogist",
-            "Drogist.nl",
-            "Plein.nl",
-            "bol.com",
-            "Amazon.nl",
-            "Action",
-            "Die Grenze",
-            "Jumbo",
-            "PLUS"
-          ],
-          "required_documents": [
-            "Kruidvat category snapshot",
-            "Synthetic price list with cost price and margin rules",
-            "Pricing and margin policy",
-            "Promotion and matching rules",
-            "Master prompt template"
-          ],
-          "required_features": [
-            "RAG document upload",
-            "Live internet search",
-            "Competitor price monitoring",
-            "Promotion interpretation",
-            "Margin check",
-            "AI advisory labels",
-            "Dashboard alerts",
-            "Source evidence",
-            "Confidence scoring",
-            "Human approval before action"
-          ],
-          "ai_labels_allowed": [
-            "Price Alert",
-            "Promo Attack",
-            "Margin Block",
-            "Banner Alignment Alert",
-            "Private Label Value Gap",
-            "Manual Review",
-            "Opportunity"
-          ]
-        }
-
     steps:
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
         with:
-          python-version: "3.11"
+          node-version: 20
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install requests
+          npm ci || npm install
 
-      - name: Validate embedded acceptance spec
+      - name: Build for GitHub Pages
         run: |
-          python - <<'PY'
-          import json
-          import os
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
 
-          spec = json.loads(os.environ["ACCEPTANCE_SPEC_JSON"])
+          if [ "$REPO_NAME" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
+            BASE_PATH="/"
+          else
+            BASE_PATH="/${REPO_NAME}/"
+          fi
 
-          required_product_groups = {
-              "Sun Care",
-              "Baby Wipes",
-              "Oral Care",
-          }
+          echo "Using GitHub Pages base path: $BASE_PATH"
 
-          required_competitors = {
-              "Etos",
-              "Albert Heijn",
-              "Trekpleister",
-              "DA",
-              "De Online Drogist",
-              "Drogist.nl",
-              "Plein.nl",
-              "bol.com",
-              "Amazon.nl",
-              "Action",
-              "Die Grenze",
-              "Jumbo",
-              "PLUS",
-          }
+          npm run build -- --base="$BASE_PATH"
 
-          required_labels = {
-              "Price Alert",
-              "Promo Attack",
-              "Margin Block",
-              "Banner Alignment Alert",
-              "Private Label Value Gap",
-              "Manual Review",
-              "Opportunity",
-          }
+          if [ ! -d "dist" ]; then
+            echo "Build folder 'dist' not found."
+            echo "This workflow assumes a Vite/Lovable build that outputs to dist."
+            exit 1
+          fi
 
-          required_features = {
-              "RAG document upload",
-              "Live internet search",
-              "Competitor price monitoring",
-              "Promotion interpretation",
-              "Margin check",
-              "AI advisory labels",
-              "Dashboard alerts",
-              "Source evidence",
-              "Confidence scoring",
-              "Human approval before action",
-          }
+          cp dist/index.html dist/404.html
 
-          actual_product_groups = set(spec["product_groups_required"])
-          actual_competitors = set(spec["competitors_required"])
-          actual_labels = set(spec["ai_labels_allowed"])
-          actual_features = set(spec["required_features"])
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
 
-          missing_product_groups = required_product_groups - actual_product_groups
-          missing_competitors = required_competitors - actual_competitors
-          missing_labels = required_labels - actual_labels
-          missing_features = required_features - actual_features
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
 
-          if missing_product_groups:
-              raise SystemExit(f"Missing product groups: {sorted(missing_product_groups)}")
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
-          if missing_competitors:
-              raise SystemExit(f"Missing competitors: {sorted(missing_competitors)}")
-
-          if missing_labels:
-              raise SystemExit(f"Missing AI labels: {sorted(missing_labels)}")
-
-          if missing_features:
-              raise SystemExit(f"Missing required features: {sorted(missing_features)}")
-
-          print("Embedded acceptance spec is valid.")
-          print(f"Product groups: {sorted(actual_product_groups)}")
-          print(f"Competitors: {sorted(actual_competitors)}")
-          print(f"AI labels: {sorted(actual_labels)}")
-          PY
-
-      - name: Smoke test hosted app
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        env:
-          LIVE_URL: ${{ github.event.inputs.live_url }}
-        run: |
-          python - <<'PY'
-          import os
-          import requests
-
-          live_url = os.environ["LIVE_URL"].strip()
-
-          if not live_url:
-              raise SystemExit("Missing live_url input.")
-
-          if "://" not in live_url:
-              live_url = "https://" + live_url
-
-          response = requests.get(live_url, timeout=30, allow_redirects=True)
-
-          if response.status_code >= 400:
-              raise SystemExit(f"Hosted app failed: HTTP {response.status_code} at {live_url}")
-
-          print(f"Hosted app is reachable: {live_url}")
-          print(f"HTTP status: {response.status_code}")
-          PY
-
-      - name: Strict functional AI tests
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.strict_functional_tests == 'true' }}
-        env:
-          LIVE_URL: ${{ github.event.inputs.live_url }}
-          TEST_ENDPOINT: ${{ github.event.inputs.test_endpoint }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          from urllib.parse import urljoin
-
-          import requests
-
-          live_url = os.environ["LIVE_URL"].strip()
-          test_endpoint = os.environ["TEST_ENDPOINT"].strip()
-
-          if "://" not in live_url:
-              live_url = "https://" + live_url
-
-          endpoint_url = urljoin(live_url.rstrip("/") + "/", test_endpoint.lstrip("/"))
-
-          test_cases = [
-              {
-                  "id": "TC_PROMO_MARGIN_001",
-                  "user_prompt": "Run a price advisory for WaterWipes Baby Wipes. A competitor has a 1+1 free promotion with a lower effective unit price, but matching that promotion would move Kruidvat below its minimum margin.",
-                  "expected_labels": ["Promo Attack", "Margin Block"],
-                  "must_mention": ["margin", "promotion", "source", "confidence", "human"]
-              },
-              {
-                  "id": "TC_BANNER_001",
-                  "user_prompt": "Run a price advisory for NIVEA Sun SPF50. Trekpleister is cheaper than Kruidvat on a likely exact match.",
-                  "expected_labels": ["Banner Alignment Alert"],
-                  "must_mention": ["Trekpleister", "banner", "source", "confidence"]
-              },
-              {
-                  "id": "TC_PRIVATE_LABEL_001",
-                  "user_prompt": "Run a price advisory for Kruidvat Solait SPF50 compared with Etos Sun SPF50. These are private-label functional alternatives, not exact SKU matches.",
-                  "expected_labels": ["Private Label Value Gap"],
-                  "must_mention": ["private label", "not exact", "source", "confidence"]
-              },
-              {
-                  "id": "TC_ORAL_CARE_PRICE_001",
-                  "user_prompt": "Run a price advisory for Sensodyne Rapid Relief 75ml in Oral Care. A competitor has a cheaper likely exact match and the synthetic margin remains above the minimum margin.",
-                  "expected_labels": ["Price Alert"],
-                  "must_mention": ["Oral Care", "margin", "source", "confidence", "recommendation"]
-              },
-              {
-                  "id": "TC_MANUAL_REVIEW_001",
-                  "user_prompt": "Run a price advisory for Pampers Sensitive Baby Wipes where competitor pack sizes differ and the unit count is unclear.",
-                  "expected_labels": ["Manual Review"],
-                  "must_mention": ["pack size", "uncertain", "source", "confidence"]
-              },
-              {
-                  "id": "TC_OPPORTUNITY_001",
-                  "user_prompt": "Run a price advisory for a Kruidvat Oral Care product where Kruidvat is cheaper than all competitors and synthetic margin remains healthy.",
-                  "expected_labels": ["Opportunity"],
-                  "must_mention": ["margin", "opportunity", "source", "confidence"]
-              }
-          ]
-
-          def normalize(value):
-              return str(value).lower().replace("_", " ").replace("-", " ")
-
-          for test_case in test_cases:
-              response = requests.post(endpoint_url, json=test_case, timeout=90)
-
-              if response.status_code == 404:
-                  raise SystemExit(
-                      f"{test_case['id']} failed: endpoint not found at {endpoint_url}. "
-                      "Either build POST /api/agent/acceptance or run with strict_functional_tests=false."
-                  )
-
-              if response.status_code >= 400:
-                  raise SystemExit(
-                      f"{test_case['id']} failed: HTTP {response.status_code}. Response: {response.text[:500]}"
-                  )
-
-              try:
-                  response_payload = response.json()
-                  response_text = normalize(json.dumps(response_payload, ensure_ascii=False))
-              except Exception:
-                  response_text = normalize(response.text)
-
-              for expected_label in test_case["expected_labels"]:
-                  if normalize(expected_label) not in response_text:
-                      raise SystemExit(
-                          f"{test_case['id']} failed: expected label '{expected_label}' not found. "
-                          f"Response: {response.text[:1000]}"
-                      )
-
-              for required_text in test_case["must_mention"]:
-                  if normalize(required_text) not in response_text:
-                      raise SystemExit(
-                          f"{test_case['id']} failed: expected mention '{required_text}' not found. "
-                          f"Response: {response.text[:1000]}"
-                      )
-
-              print(f"{test_case['id']} passed.")
-
-          print("All strict functional AI tests passed.")
-          PY
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
