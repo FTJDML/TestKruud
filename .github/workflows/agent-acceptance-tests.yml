@@ -1,290 +1,307 @@
-version: "1.0"
-name: "ASW Kruidvat Promo & Price Advisory AI Agent - Acceptance Test Spec"
-owner: "CGI workshop team"
-purpose: >
-  Test whether a hosted agent does more than track prices. The agent must combine
-  uploaded Kruidvat data, RAG policy documents and live public web findings into
-  grounded advice with clear AI action labels, margin checks and human review steps.
+name: Kruidvat Agent Acceptance Tests
 
-app_under_test:
-  live_url: "REPLACE_WITH_YOUR_HOSTED_APP_URL"
-  github_repo: "REPLACE_WITH_YOUR_GITHUB_REPO_URL"
-  test_mode: "offline_fixture_first_live_web_second"
-  notes: >
-    Run deterministic fixture cases first. Then run the same workflow with live web enabled.
-    Live prices change, so pass/fail should focus on reasoning, grounding, labels and guardrails
-    rather than exact price values.
+on:
+  workflow_dispatch:
+    inputs:
+      live_url:
+        description: "Hosted app URL, for example https://your-agent.vercel.app"
+        required: true
+        type: string
+      strict_functional_tests:
+        description: "Use true only if your app exposes POST /api/agent/acceptance"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      test_endpoint:
+        description: "Functional test endpoint"
+        required: true
+        default: "/api/agent/acceptance"
+        type: string
 
-pilot_scope:
-  product_groups_required:
-    - Sun Care
-    - Baby Wipes
-    - Oral Care
-  competitors_required:
-    - Etos
-    - Albert Heijn
-    - Trekpleister
-    - DA
-    - De Online Drogist
-    - Drogist.nl
-    - Plein.nl
-    - bol.com
-    - Amazon.nl
-    - Action
-    - Die Grenze
-    - Jumbo
-    - PLUS
-  special_competitor_rules:
-    Trekpleister: "Internal banner benchmark; use Banner Alignment Alert when relevant."
-    bol.com: "Marketplace signal; Manual Review by default."
-    Amazon.nl: "Marketplace signal; Manual Review by default."
-    Action: "Value perception benchmark; rarely exact SKU matching."
-    Die Grenze: "Promo/outlet signal; Manual Review unless exact evidence is strong."
+  push:
+    branches:
+      - main
 
-required_uploads:
-  - file: "ASW_Kruidvat_Price_Advisor_Data_Pack_EN.xlsx"
-    role: "Structured product, price, margin and test-case data"
-  - file: "02_RAG_Pricing_Margin_Policy_SYNTHETIC_EN.docx"
-    role: "Binding RAG policy for margin, price floor and approval rules"
-  - file: "03_RAG_Promotion_Matching_AI_Action_Rules_EN.docx"
-    role: "RAG rules for competitor scope, promotion parsing, matching and AI action labels"
-  - file: "04_Master_Prompt_Template_ASW_Kruidvat_EN.docx"
-    role: "Master prompt / agent behavior specification"
+permissions:
+  contents: read
 
-required_features:
-  upload_and_ingestion:
-    - "User can upload or load the Kruidvat data pack"
-    - "User can upload RAG policy/rules documents"
-    - "App shows which files are loaded and when"
-  scan_workflow:
-    - "User can run a price and promo scan for all three product groups"
-    - "Agent attempts all competitors or logs why a source was unavailable"
-    - "Agent parses regular price, promotion text, stock/availability when visible and source URL"
-  ai_reasoning:
-    - "Agent assigns exactly one primary AI label per alert"
-    - "Agent shows match score and match reason"
-    - "Agent normalizes unit price by product group"
-    - "Agent applies margin and price floor rules before recommending action"
-    - "Agent marks uncertainty as Manual Review instead of inventing facts"
-  dashboard:
-    - "KPI cards: products scanned, competitors attempted, successful matches, alert counts"
-    - "Alert table: product, competitor, AI label, confidence, margin status, action"
-    - "Evidence drawer: URL, timestamp, price, promo text, normalized price, policy rules"
-    - "Daily Price Brief: copyable summary for category management"
-  hosting:
-    - "Hosted live URL works without local development server"
-    - "Code or export is stored in GitHub"
+jobs:
+  agent-acceptance-tests:
+    runs-on: ubuntu-latest
 
-ai_labels_allowed:
-  - Price Alert
-  - Promo Attack
-  - Margin Block
-  - Banner Alignment Alert
-  - Private Label Value Gap
-  - Manual Review
-  - Opportunity
+    env:
+      ACCEPTANCE_SPEC_JSON: >-
+        {
+          "case_name": "AS Watson Kruidvat Promo & Price Advisor Agent",
+          "product_groups_required": [
+            "Sun Care",
+            "Baby Wipes",
+            "Oral Care"
+          ],
+          "competitors_required": [
+            "Etos",
+            "Albert Heijn",
+            "Trekpleister",
+            "DA",
+            "De Online Drogist",
+            "Drogist.nl",
+            "Plein.nl",
+            "bol.com",
+            "Amazon.nl",
+            "Action",
+            "Die Grenze",
+            "Jumbo",
+            "PLUS"
+          ],
+          "required_documents": [
+            "Kruidvat category snapshot",
+            "Synthetic price list with cost price and margin rules",
+            "Pricing and margin policy",
+            "Promotion and matching rules",
+            "Master prompt template"
+          ],
+          "required_features": [
+            "RAG document upload",
+            "Live internet search",
+            "Competitor price monitoring",
+            "Promotion interpretation",
+            "Margin check",
+            "AI advisory labels",
+            "Dashboard alerts",
+            "Source evidence",
+            "Confidence scoring",
+            "Human approval before action"
+          ],
+          "ai_labels_allowed": [
+            "Price Alert",
+            "Promo Attack",
+            "Margin Block",
+            "Banner Alignment Alert",
+            "Private Label Value Gap",
+            "Manual Review",
+            "Opportunity"
+          ]
+        }
 
-minimum_alert_schema:
-  required_fields:
-    - product_group
-    - kruidvat_sku
-    - product_name
-    - competitor
-    - competitor_role
-    - source_url
-    - source_timestamp
-    - match_score
-    - match_reason
-    - regular_price_inc_vat
-    - competitor_price_inc_vat
-    - competitor_promo_text
-    - promotion_interpretation
-    - normalized_kruidvat_price
-    - normalized_competitor_price
-    - margin_status
-    - price_floor_status
-    - applied_policy_rules
-    - ai_label
-    - recommended_action
-    - human_check
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-acceptance_tests:
-  - id: TC_SCOPE_001
-    name: "All product groups are supported"
-    type: "scope"
-    input: "Run scan for all pilot categories"
-    expected:
-      must_include_product_groups: ["Sun Care", "Baby Wipes", "Oral Care"]
-      fail_if: "Oral Care is treated as optional or missing"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
 
-  - id: TC_SCOPE_002
-    name: "All competitors are in scope"
-    type: "scope"
-    input: "Open source/competitor configuration"
-    expected:
-      must_include_competitors:
-        - Etos
-        - Albert Heijn
-        - Trekpleister
-        - DA
-        - De Online Drogist
-        - Drogist.nl
-        - Plein.nl
-        - bol.com
-        - Amazon.nl
-        - Action
-        - Die Grenze
-        - Jumbo
-        - PLUS
-      fail_if: "Any competitor is categorized as stretch or omitted"
+      - name: Validate embedded acceptance spec
+        run: |
+          python - <<'PY'
+          import json
+          import os
 
-  - id: TC_PROMO_001
-    name: "1+1 free is not treated as a permanent price drop"
-    fixture:
-      product: "NIVEA Sun Protect & Hydrate SPF50+ Sunspray 200ml"
-      competitor: "Albert Heijn"
-      promo_text: "1+1 free"
-      match_score: 88
-      price_floor_status: "OK"
-    expected:
-      ai_label: "Promo Attack"
-      must_explain: "multi-buy condition"
-      fail_if: "Agent recommends permanent regular price reduction without caveat"
+          spec = json.loads(os.environ["ACCEPTANCE_SPEC_JSON"])
 
-  - id: TC_MARGIN_001
-    name: "Margin block prevents unsafe price matching"
-    fixture:
-      product: "WaterWipes Baby Wipes 12 x 60"
-      competitor: "Etos"
-      promo_text: "1+1 free"
-      match_score: 92
-      price_floor_status: "BLOCK"
-      estimated_margin_after_response: 0.12
-    expected:
-      ai_label: "Margin Block"
-      recommended_action_contains: "Do not match"
-      fail_if: "Agent advises matching the competitor price"
+          required_product_groups = {
+              "Sun Care",
+              "Baby Wipes",
+              "Oral Care",
+          }
 
-  - id: TC_BANNER_001
-    name: "Trekpleister is an internal banner alert"
-    fixture:
-      product: "Kruidvat Sensitive Lotion Wipes 12 x 72"
-      competitor: "Trekpleister"
-      match_score: 96
-      competitor_price_lower: true
-    expected:
-      ai_label: "Banner Alignment Alert"
-      must_explain: "internal banner benchmark"
-      fail_if: "Trekpleister is treated as an external competitor"
+          required_competitors = {
+              "Etos",
+              "Albert Heijn",
+              "Trekpleister",
+              "DA",
+              "De Online Drogist",
+              "Drogist.nl",
+              "Plein.nl",
+              "bol.com",
+              "Amazon.nl",
+              "Action",
+              "Die Grenze",
+              "Jumbo",
+              "PLUS",
+          }
 
-  - id: TC_PRIVATE_LABEL_001
-    name: "Private label is not matched directly to A-brand"
-    fixture:
-      product: "Kruidvat Solait SPF50 Hydra 24H Sunspray 200ml"
-      competitor_product: "Etos private label SPF50 200ml"
-      match_score: 62
-    expected:
-      ai_label: "Private Label Value Gap"
-      fail_if: "Agent claims exact SKU match"
+          required_labels = {
+              "Price Alert",
+              "Promo Attack",
+              "Margin Block",
+              "Banner Alignment Alert",
+              "Private Label Value Gap",
+              "Manual Review",
+              "Opportunity",
+          }
 
-  - id: TC_MARKETPLACE_001
-    name: "Marketplace finding triggers manual review"
-    fixture:
-      product: "Beauty of Joseon Sun Rice Probiotics SPF50+ 50ml"
-      competitor: "Amazon.nl"
-      seller_type: "third_party"
-      match_score: 54
-    expected:
-      ai_label: "Manual Review"
-      must_explain: "seller/shipping/stock uncertainty"
+          required_features = {
+              "RAG document upload",
+              "Live internet search",
+              "Competitor price monitoring",
+              "Promotion interpretation",
+              "Margin check",
+              "AI advisory labels",
+              "Dashboard alerts",
+              "Source evidence",
+              "Confidence scoring",
+              "Human approval before action",
+          }
 
-  - id: TC_ORAL_001
-    name: "Oral Care multipack and unit normalization"
-    fixture:
-      product: "Oral-B Replacement Brush Heads 4 pieces"
-      competitor: "Drogist.nl"
-      competitor_pack_size: "6 pieces"
-      match_score: 77
-    expected:
-      ai_label: "Manual Review"
-      must_show: "normalized per brush head"
-      fail_if: "Agent compares total pack prices only"
+          actual_product_groups = set(spec["product_groups_required"])
+          actual_competitors = set(spec["competitors_required"])
+          actual_labels = set(spec["ai_labels_allowed"])
+          actual_features = set(spec["required_features"])
 
-  - id: TC_PRICE_ALERT_001
-    name: "Exact lower non-promo competitor price can be a Price Alert"
-    fixture:
-      product: "Oral-B Pro-Expert Toothpaste 75ml"
-      competitor: "Albert Heijn"
-      match_score: 87
-      promo_text: "No promotion"
-      price_floor_status: "OK"
-    expected:
-      ai_label: "Price Alert"
-      must_include: ["margin status", "policy rule", "human approval"]
+          missing_product_groups = required_product_groups - actual_product_groups
+          missing_competitors = required_competitors - actual_competitors
+          missing_labels = required_labels - actual_labels
+          missing_features = required_features - actual_features
 
-  - id: TC_OPPORTUNITY_001
-    name: "Kruidvat cheaper with safe margin becomes Opportunity"
-    fixture:
-      product: "Kruidvat Complete Care Toothpaste 75ml"
-      competitor: "DA"
-      match_score: 58
-      competitor_is_a_brand_alternative: true
-      margin_status: "OK"
-    expected:
-      ai_label: "Opportunity"
-      fail_if: "Agent suggests unnecessary price cut"
+          if missing_product_groups:
+              raise SystemExit(f"Missing product groups: {sorted(missing_product_groups)}")
 
-  - id: TC_GROUNDING_001
-    name: "No fabricated live price"
-    fixture:
-      product: "A product with no reliable source found"
-      competitor: "Any"
-      source_url: null
-    expected:
-      ai_label: "Manual Review"
-      must_state_missing: ["source URL", "timestamp", "verified price"]
-      fail_if: "Agent invents a competitor price"
+          if missing_competitors:
+              raise SystemExit(f"Missing competitors: {sorted(missing_competitors)}")
 
-  - id: TC_DASHBOARD_001
-    name: "Dashboard contains required metrics and drilldown"
-    type: "ui"
-    expected:
-      required_widgets:
-        - "KPI cards"
-        - "alert counts by AI label"
-        - "product alert table"
-        - "evidence drilldown"
-        - "Daily Price Brief"
-      fail_if: "Only raw tracker table is shown"
+          if missing_labels:
+              raise SystemExit(f"Missing AI labels: {sorted(missing_labels)}")
 
-scoring:
-  total_points: 100
-  categories:
-    grounding_and_sources: 20
-    ai_action_reasoning: 25
-    margin_and_policy_application: 20
-    dashboard_and_ux: 15
-    hosting_and_github: 10
-    test_evidence: 10
-  pass_threshold: 75
-  critical_failures:
-    - "Automatic price changes are triggered"
-    - "Agent advises price below price floor"
-    - "Agent invents prices or source URLs"
-    - "Oral Care is missing from scope"
-    - "Competitors are treated as stretch or omitted"
-    - "No human review is shown for low-confidence or marketplace cases"
+          if missing_features:
+              raise SystemExit(f"Missing required features: {sorted(missing_features)}")
 
-manual_test_steps:
-  - step: 1
-    instruction: "Deploy the app and paste its URL into app_under_test.live_url."
-  - step: 2
-    instruction: "Upload/load the data pack and all RAG documents."
-  - step: 3
-    instruction: "Run offline fixture tests TC_PROMO_001 through TC_GROUNDING_001."
-  - step: 4
-    instruction: "Run a live web scan for at least one product in each product group."
-  - step: 5
-    instruction: "Export or screenshot the Daily Price Brief and dashboard."
-  - step: 6
-    instruction: "Record pass/fail notes and commit the result to GitHub."
+          print("Embedded acceptance spec is valid.")
+          print(f"Product groups: {sorted(actual_product_groups)}")
+          print(f"Competitors: {sorted(actual_competitors)}")
+          print(f"AI labels: {sorted(actual_labels)}")
+          PY
+
+      - name: Smoke test hosted app
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          LIVE_URL: ${{ github.event.inputs.live_url }}
+        run: |
+          python - <<'PY'
+          import os
+          import requests
+
+          live_url = os.environ["LIVE_URL"].strip()
+
+          if not live_url:
+              raise SystemExit("Missing live_url input.")
+
+          if "://" not in live_url:
+              live_url = "https://" + live_url
+
+          response = requests.get(live_url, timeout=30, allow_redirects=True)
+
+          if response.status_code >= 400:
+              raise SystemExit(f"Hosted app failed: HTTP {response.status_code} at {live_url}")
+
+          print(f"Hosted app is reachable: {live_url}")
+          print(f"HTTP status: {response.status_code}")
+          PY
+
+      - name: Strict functional AI tests
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.strict_functional_tests == 'true' }}
+        env:
+          LIVE_URL: ${{ github.event.inputs.live_url }}
+          TEST_ENDPOINT: ${{ github.event.inputs.test_endpoint }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.parse import urljoin
+
+          import requests
+
+          live_url = os.environ["LIVE_URL"].strip()
+          test_endpoint = os.environ["TEST_ENDPOINT"].strip()
+
+          if "://" not in live_url:
+              live_url = "https://" + live_url
+
+          endpoint_url = urljoin(live_url.rstrip("/") + "/", test_endpoint.lstrip("/"))
+
+          test_cases = [
+              {
+                  "id": "TC_PROMO_MARGIN_001",
+                  "user_prompt": "Run a price advisory for WaterWipes Baby Wipes. A competitor has a 1+1 free promotion with a lower effective unit price, but matching that promotion would move Kruidvat below its minimum margin.",
+                  "expected_labels": ["Promo Attack", "Margin Block"],
+                  "must_mention": ["margin", "promotion", "source", "confidence", "human"]
+              },
+              {
+                  "id": "TC_BANNER_001",
+                  "user_prompt": "Run a price advisory for NIVEA Sun SPF50. Trekpleister is cheaper than Kruidvat on a likely exact match.",
+                  "expected_labels": ["Banner Alignment Alert"],
+                  "must_mention": ["Trekpleister", "banner", "source", "confidence"]
+              },
+              {
+                  "id": "TC_PRIVATE_LABEL_001",
+                  "user_prompt": "Run a price advisory for Kruidvat Solait SPF50 compared with Etos Sun SPF50. These are private-label functional alternatives, not exact SKU matches.",
+                  "expected_labels": ["Private Label Value Gap"],
+                  "must_mention": ["private label", "not exact", "source", "confidence"]
+              },
+              {
+                  "id": "TC_ORAL_CARE_PRICE_001",
+                  "user_prompt": "Run a price advisory for Sensodyne Rapid Relief 75ml in Oral Care. A competitor has a cheaper likely exact match and the synthetic margin remains above the minimum margin.",
+                  "expected_labels": ["Price Alert"],
+                  "must_mention": ["Oral Care", "margin", "source", "confidence", "recommendation"]
+              },
+              {
+                  "id": "TC_MANUAL_REVIEW_001",
+                  "user_prompt": "Run a price advisory for Pampers Sensitive Baby Wipes where competitor pack sizes differ and the unit count is unclear.",
+                  "expected_labels": ["Manual Review"],
+                  "must_mention": ["pack size", "uncertain", "source", "confidence"]
+              },
+              {
+                  "id": "TC_OPPORTUNITY_001",
+                  "user_prompt": "Run a price advisory for a Kruidvat Oral Care product where Kruidvat is cheaper than all competitors and synthetic margin remains healthy.",
+                  "expected_labels": ["Opportunity"],
+                  "must_mention": ["margin", "opportunity", "source", "confidence"]
+              }
+          ]
+
+          def normalize(value):
+              return str(value).lower().replace("_", " ").replace("-", " ")
+
+          for test_case in test_cases:
+              response = requests.post(endpoint_url, json=test_case, timeout=90)
+
+              if response.status_code == 404:
+                  raise SystemExit(
+                      f"{test_case['id']} failed: endpoint not found at {endpoint_url}. "
+                      "Either build POST /api/agent/acceptance or run with strict_functional_tests=false."
+                  )
+
+              if response.status_code >= 400:
+                  raise SystemExit(
+                      f"{test_case['id']} failed: HTTP {response.status_code}. Response: {response.text[:500]}"
+                  )
+
+              try:
+                  response_payload = response.json()
+                  response_text = normalize(json.dumps(response_payload, ensure_ascii=False))
+              except Exception:
+                  response_text = normalize(response.text)
+
+              for expected_label in test_case["expected_labels"]:
+                  if normalize(expected_label) not in response_text:
+                      raise SystemExit(
+                          f"{test_case['id']} failed: expected label '{expected_label}' not found. "
+                          f"Response: {response.text[:1000]}"
+                      )
+
+              for required_text in test_case["must_mention"]:
+                  if normalize(required_text) not in response_text:
+                      raise SystemExit(
+                          f"{test_case['id']} failed: expected mention '{required_text}' not found. "
+                          f"Response: {response.text[:1000]}"
+                      )
+
+              print(f"{test_case['id']} passed.")
+
+          print("All strict functional AI tests passed.")
+          PY
