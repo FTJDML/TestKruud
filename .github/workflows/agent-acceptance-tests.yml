@@ -11,61 +11,16 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: github-pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build app
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Set up Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: |
-          npm ci || npm install
-
-      - name: Build for GitHub Pages
-        run: |
-          REPO_NAME="${GITHUB_REPOSITORY#*/}"
-
-          if [ "$REPO_NAME" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
-            BASE_PATH="/"
-          else
-            BASE_PATH="/${REPO_NAME}/"
-          fi
-
-          echo "Using GitHub Pages base path: $BASE_PATH"
-
-          npm run build -- --base="$BASE_PATH"
-
-          if [ ! -d "dist" ]; then
-            echo "Build folder 'dist' not found."
-            echo "This workflow assumes a Vite/Lovable build that outputs to dist."
-            exit 1
-          fi
-
-          cp dist/index.html dist/404.html
-
-      - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: dist
-
   deploy:
-    name: Deploy to GitHub Pages
-    needs: build
+    name: Build and deploy
     runs-on: ubuntu-latest
 
     environment:
@@ -73,6 +28,105 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Deploy
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Set up Node.js
+        if: ${{ hashFiles('package.json') != '' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Build site
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          if [ "$REPO_NAME" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
+            BASE_PATH="/"
+          else
+            BASE_PATH="/${REPO_NAME}/"
+          fi
+
+          echo "GitHub Pages base path: $BASE_PATH"
+
+          if [ -f package.json ]; then
+            corepack enable || true
+
+            if [ -f pnpm-lock.yaml ]; then
+              pnpm install --frozen-lockfile
+            elif [ -f yarn.lock ]; then
+              yarn install --frozen-lockfile
+            elif [ -f package-lock.json ]; then
+              npm ci
+            else
+              npm install
+            fi
+
+            if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
+              if [ -f vite.config.js ] || [ -f vite.config.ts ] || grep -q '"vite"' package.json; then
+                if [ -f pnpm-lock.yaml ]; then
+                  pnpm run build -- --base="$BASE_PATH"
+                elif [ -f yarn.lock ]; then
+                  yarn build --base "$BASE_PATH"
+                else
+                  npm run build -- --base="$BASE_PATH"
+                fi
+              else
+                if [ -f pnpm-lock.yaml ]; then
+                  pnpm run build
+                elif [ -f yarn.lock ]; then
+                  yarn build
+                else
+                  npm run build
+                fi
+              fi
+            fi
+          fi
+
+          if [ -d dist ]; then
+            SITE_DIR="dist"
+          elif [ -d build ]; then
+            SITE_DIR="build"
+          elif [ -d out ]; then
+            SITE_DIR="out"
+          elif [ -d public ] && [ -f public/index.html ]; then
+            rm -rf dist
+            mkdir -p dist
+            cp -R public/. dist/
+            SITE_DIR="dist"
+          elif [ -f index.html ]; then
+            rm -rf dist
+            mkdir -p dist
+            rsync -a \
+              --exclude='.git' \
+              --exclude='.github' \
+              --exclude='node_modules' \
+              --exclude='dist' \
+              ./ dist/
+            SITE_DIR="dist"
+          else
+            echo "No deployable site found. Expected one of: dist/, build/, out/, public/index.html, or index.html."
+            exit 1
+          fi
+
+          touch "$SITE_DIR/.nojekyll"
+          if [ -f "$SITE_DIR/index.html" ]; then
+            cp "$SITE_DIR/index.html" "$SITE_DIR/404.html"
+          fi
+
+          echo "SITE_DIR=$SITE_DIR" >> "$GITHUB_ENV"
+          echo "Deploying folder: $SITE_DIR"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ env.SITE_DIR }}
+
+      - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
