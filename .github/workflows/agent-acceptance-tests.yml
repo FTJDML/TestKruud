@@ -1,4 +1,4 @@
-name: Deploy Kruidvat Promo Price Advisor Agent
+name: Deploy Kruidvat Price Advisory Agent
 
 on:
   push:
@@ -11,13 +11,16 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: github-pages
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Generate documents, build app and deploy
+    name: Generate and deploy workshop app
     runs-on: ubuntu-latest
 
     environment:
@@ -25,570 +28,664 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
       - name: Generate static app and upload documents
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet openpyxl python-docx
 
-          python3 <<'PY'
+          rm -rf _site
+          mkdir -p _site/data _site/workshop-documents
+
+          python3 - <<'PY'
           from pathlib import Path
           import csv
           import json
           import math
           import random
           import zipfile
-          from datetime import datetime
-          from textwrap import dedent
+          from datetime import datetime, timezone
+          from xml.sax.saxutils import escape
 
-          from openpyxl import Workbook
-          from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-          from openpyxl.utils import get_column_letter
-          from docx import Document
-          from docx.shared import RGBColor, Pt
-
+          root = Path('_site')
+          data_dir = root / 'data'
+          doc_dir = root / 'workshop-documents'
+          now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
           random.seed(42)
 
-          site = Path("_site")
-          docs = site / "workshop-documents"
-          data = site / "data"
-          docs.mkdir(parents=True, exist_ok=True)
-          data.mkdir(parents=True, exist_ok=True)
-
-          RED = "E30613"
-          YELLOW = "FFD600"
-          DARK = "1F1F1F"
-          LIGHT = "F8F8F8"
-
           competitors = [
-              {"name": "Etos", "role": "Primary external drugstore benchmark", "type": "external"},
-              {"name": "Albert Heijn", "role": "Cross-channel supermarket benchmark", "type": "external"},
-              {"name": "Trekpleister", "role": "Internal banner alignment benchmark", "type": "internal_banner"},
-              {"name": "DA", "role": "Drugstore benchmark", "type": "external"},
-              {"name": "De Online Drogist", "role": "Online pharmacy/drugstore benchmark", "type": "external"},
-              {"name": "Drogist.nl", "role": "Online drugstore benchmark", "type": "external"},
-              {"name": "Plein.nl", "role": "Online health and household benchmark", "type": "external"},
-              {"name": "bol.com", "role": "Marketplace signal - manual review when sellers differ", "type": "marketplace"},
-              {"name": "Amazon.nl", "role": "Marketplace signal - manual review when sellers differ", "type": "marketplace"},
-              {"name": "Action", "role": "Value perception and private-label benchmark", "type": "external"},
-              {"name": "Die Grenze", "role": "Promotion attack and outlet signal", "type": "external"},
-              {"name": "Jumbo", "role": "Supermarket cross-channel benchmark", "type": "external"},
-              {"name": "PLUS", "role": "Supermarket cross-channel benchmark", "type": "external"},
+              {'name': 'Etos', 'type': 'Direct external drogist', 'role': 'Primary benchmark'},
+              {'name': 'Albert Heijn', 'type': 'Cross-channel grocery', 'role': 'Cross-channel benchmark'},
+              {'name': 'Trekpleister', 'type': 'Internal AS Watson banner', 'role': 'Banner alignment benchmark'},
+              {'name': 'DA', 'type': 'External drogist', 'role': 'Drogist benchmark'},
+              {'name': 'De Online Drogist', 'type': 'Online drogist', 'role': 'Online price pressure'},
+              {'name': 'Drogist.nl', 'type': 'Online drogist', 'role': 'Online price pressure'},
+              {'name': 'Plein.nl', 'type': 'Online retailer', 'role': 'Pack-size and online benchmark'},
+              {'name': 'bol.com', 'type': 'Marketplace', 'role': 'Marketplace signal only'},
+              {'name': 'Amazon.nl', 'type': 'Marketplace', 'role': 'Marketplace signal only'},
+              {'name': 'Action', 'type': 'Value retailer', 'role': 'Value perception benchmark'},
+              {'name': 'Die Grenze', 'type': 'Deal retailer', 'role': 'Promo attack radar'},
+              {'name': 'Jumbo', 'type': 'Cross-channel grocery', 'role': 'Grocery benchmark'},
+              {'name': 'PLUS', 'type': 'Cross-channel grocery', 'role': 'Grocery benchmark'},
           ]
 
-          product_rows = []
+          def money(x):
+              return round(float(x) + 1e-9, 2)
 
-          sun_brands = ["Kruidvat Solait", "NIVEA Sun", "Garnier Ambre Solaire", "Biodermal", "Australian Gold", "Eucerin", "La Roche-Posay", "Vision"]
-          sun_forms = ["spray", "lotion", "cream", "face fluid", "kids spray", "after sun"]
-          spfs = ["SPF15", "SPF30", "SPF50", "SPF50+"]
-          sizes_ml = [50, 100, 150, 200, 250]
-          for i in range(245):
-              brand = sun_brands[i % len(sun_brands)]
-              form = sun_forms[(i // len(sun_brands)) % len(sun_forms)]
-              spf = spfs[(i // 7) % len(spfs)]
-              size = sizes_ml[(i // 11) % len(sizes_ml)]
-              name = f"{brand} {spf} {form.title()} {size}ml"
-              price = round(6.49 + (i % 19) * 1.35 + (0.50 if brand == "Kruidvat Solait" else 2.20), 2)
-              cost_ex = round((price / 1.21) * (0.42 + (i % 6) * 0.025), 2)
-              product_rows.append({
-                  "sku": f"KV-SUN-{i+1:03d}", "product_group": "Sun Care", "product_name": name, "brand": brand,
-                  "variant": f"{spf} {form}", "size_value": size, "unit_type": "ml", "pack_count": 1,
-                  "total_units": size, "regular_price_inc_vat": price, "current_kruidvat_promo": "1+1 free" if i % 17 == 0 else ("25% off" if i % 23 == 0 else "none"),
-                  "synthetic_cost_price_ex_vat": cost_ex, "supplier_funding_per_unit": round(0.25 if i % 14 == 0 else 0, 2),
-                  "min_margin_pct": 24 if brand != "Kruidvat Solait" else 35,
-                  "price_floor_ex_vat": round(cost_ex * 1.12, 2), "kvi_flag": "Y" if i % 9 == 0 else "N",
-                  "private_label_flag": "Y" if brand == "Kruidvat Solait" else "N", "promo_lock_flag": "Y" if i % 29 == 0 else "N"
+          def mk_sku(prefix, n):
+              return f'{prefix}-{n:03d}'
+
+          products = []
+
+          sun_brands = ['Kruidvat Solait', 'NIVEA Sun', 'Garnier Ambre Solaire', 'Biodermal', 'Australian Gold', 'Lancaster', 'La Roche-Posay', 'Naif', 'Vision', 'Eucerin']
+          sun_forms = ['Spray', 'Lotion', 'Cream', 'Kids Spray', 'Face Fluid', 'After Sun']
+          spfs = ['SPF15', 'SPF30', 'SPF50', 'SPF50+']
+          sizes = [50, 100, 150, 200, 250, 300]
+          n = 1
+          while n <= 245:
+              brand = sun_brands[(n - 1) % len(sun_brands)]
+              form = sun_forms[(n * 3) % len(sun_forms)]
+              spf = spfs[(n * 5) % len(spfs)]
+              size = sizes[(n * 7) % len(sizes)]
+              private_label = brand == 'Kruidvat Solait'
+              base = 5.49 + (size / 100.0) * 3.1 + (0 if private_label else 4.2) + ((n % 9) * 0.75)
+              price = money(base)
+              cost = money((price / 1.21) * (0.48 if private_label else 0.62))
+              products.append({
+                  'sku': mk_sku('SUN', n),
+                  'product_group': 'Sun Care',
+                  'brand': brand,
+                  'product_name': f'{brand} {form} {spf} {size}ml',
+                  'pack_size': f'{size} ml',
+                  'unit_count': size,
+                  'unit_type': 'ml',
+                  'kruidvat_price_inc_vat': price,
+                  'synthetic_cost_ex_vat': cost,
+                  'min_margin_pct': 0.28 if private_label else 0.18,
+                  'price_floor_ex_vat': money(cost / (1 - (0.28 if private_label else 0.18))),
+                  'kvi_flag': bool(n % 11 == 0),
+                  'private_label_flag': private_label,
+                  'promo_lock_flag': bool(n % 19 == 0),
+                  'supplier_funding_per_unit': money(0.35 if (not private_label and n % 5 == 0) else 0),
+                  'snapshot_promo_text': 'Kruidvat Club offer' if n % 13 == 0 else ('1+1 free' if n % 17 == 0 else 'No current promotion'),
+                  'source_url': f'https://www.kruidvat.nl/sun-care-demo-{n}'
+              })
+              n += 1
+
+          baby_brands = ['Kruidvat', 'Pampers', 'WaterWipes', 'Zwitsal', 'Huggies', 'Naif']
+          baby_variants = ['Sensitive', 'Aqua Pure', 'Plastic Free', 'Pure Water', 'Fragrance Free', 'Lotion']
+          baby_packs = [(1, 56), (4, 52), (6, 60), (9, 60), (12, 72), (12, 65), (24, 52)]
+          for n in range(1, 43):
+              brand = baby_brands[(n - 1) % len(baby_brands)]
+              variant = baby_variants[(n * 2) % len(baby_variants)]
+              packs, per_pack = baby_packs[(n * 3) % len(baby_packs)]
+              total = packs * per_pack
+              private_label = brand == 'Kruidvat'
+              price = money(1.49 + total * (0.012 if private_label else 0.018) + ((n % 5) * 0.5))
+              cost = money((price / 1.21) * (0.52 if private_label else 0.68))
+              products.append({
+                  'sku': mk_sku('BABY', n),
+                  'product_group': 'Baby Wipes',
+                  'brand': brand,
+                  'product_name': f'{brand} {variant} Baby Wipes {packs} x {per_pack}',
+                  'pack_size': f'{packs} x {per_pack} wipes',
+                  'unit_count': total,
+                  'unit_type': 'wipe',
+                  'kruidvat_price_inc_vat': price,
+                  'synthetic_cost_ex_vat': cost,
+                  'min_margin_pct': 0.35 if private_label else 0.16,
+                  'price_floor_ex_vat': money(cost / (1 - (0.35 if private_label else 0.16))),
+                  'kvi_flag': bool(n % 7 == 0),
+                  'private_label_flag': private_label,
+                  'promo_lock_flag': bool(n % 12 == 0),
+                  'supplier_funding_per_unit': money(0.25 if (not private_label and n % 4 == 0) else 0),
+                  'snapshot_promo_text': '2nd half price' if n % 8 == 0 else ('No current promotion'),
+                  'source_url': f'https://www.kruidvat.nl/baby-wipes-demo-{n}'
               })
 
-          wipe_brands = ["Kruidvat", "Pampers", "WaterWipes", "Zwitsal", "Naif", "Huggies"]
-          wipe_variants = ["Sensitive", "Aqua Pure", "Plastic Free", "Lotion", "Perfume Free", "Extra Soft"]
-          wipe_packs = [(1, 72), (4, 56), (9, 60), (12, 60), (12, 72), (24, 52), (6, 65)]
-          for i in range(42):
-              brand = wipe_brands[i % len(wipe_brands)]
-              variant = wipe_variants[(i // len(wipe_brands)) % len(wipe_variants)]
-              pack, per_pack = wipe_packs[i % len(wipe_packs)]
-              total = pack * per_pack
-              name = f"{brand} {variant} Baby Wipes {pack} x {per_pack} pcs"
-              price = round(1.69 + total * (0.017 + (i % 5) * 0.002), 2)
-              cost_ex = round((price / 1.21) * (0.46 + (i % 4) * 0.03), 2)
-              product_rows.append({
-                  "sku": f"KV-BW-{i+1:03d}", "product_group": "Baby Wipes", "product_name": name, "brand": brand,
-                  "variant": variant, "size_value": per_pack, "unit_type": "wipe", "pack_count": pack,
-                  "total_units": total, "regular_price_inc_vat": price, "current_kruidvat_promo": "2nd half price" if i % 8 == 0 else ("bundle" if i % 13 == 0 else "none"),
-                  "synthetic_cost_price_ex_vat": cost_ex, "supplier_funding_per_unit": round(0.35 if brand in ["Pampers", "WaterWipes"] and i % 3 == 0 else 0, 2),
-                  "min_margin_pct": 20 if brand != "Kruidvat" else 36,
-                  "price_floor_ex_vat": round(cost_ex * 1.10, 2), "kvi_flag": "Y" if brand in ["Pampers", "WaterWipes"] and i % 4 == 0 else "N",
-                  "private_label_flag": "Y" if brand == "Kruidvat" else "N", "promo_lock_flag": "Y" if i % 19 == 0 else "N"
+          oral_brands = ['Kruidvat', 'Sensodyne', 'Oral-B', 'Colgate', 'Elmex', 'Aquafresh', 'Zendium', 'Listerine']
+          oral_types = ['Toothpaste', 'Mouthwash', 'Brush Heads', 'Whitening Toothpaste', 'Sensitive Toothpaste', 'Kids Toothpaste']
+          oral_sizes = [50, 75, 100, 125, 500, 750]
+          for n in range(1, 169):
+              brand = oral_brands[(n - 1) % len(oral_brands)]
+              typ = oral_types[(n * 2) % len(oral_types)]
+              size = oral_sizes[(n * 5) % len(oral_sizes)]
+              unit_type = 'piece' if 'Brush' in typ else 'ml'
+              unit_count = 4 if unit_type == 'piece' else size
+              private_label = brand == 'Kruidvat'
+              price = money(1.99 + (size / 100.0) * 1.35 + (0 if private_label else 2.25) + ((n % 6) * 0.55))
+              if unit_type == 'piece':
+                  price = money(8.99 + (n % 7) * 1.6)
+              cost = money((price / 1.21) * (0.50 if private_label else 0.64))
+              products.append({
+                  'sku': mk_sku('ORAL', n),
+                  'product_group': 'Oral Care',
+                  'brand': brand,
+                  'product_name': f'{brand} {typ} {unit_count}{unit_type if unit_type == "ml" else " pcs"}',
+                  'pack_size': f'{unit_count} {unit_type}',
+                  'unit_count': unit_count,
+                  'unit_type': unit_type,
+                  'kruidvat_price_inc_vat': price,
+                  'synthetic_cost_ex_vat': cost,
+                  'min_margin_pct': 0.32 if private_label else 0.17,
+                  'price_floor_ex_vat': money(cost / (1 - (0.32 if private_label else 0.17))),
+                  'kvi_flag': bool(n % 10 == 0),
+                  'private_label_flag': private_label,
+                  'promo_lock_flag': bool(n % 21 == 0),
+                  'supplier_funding_per_unit': money(0.15 if (not private_label and n % 6 == 0) else 0),
+                  'snapshot_promo_text': '25% off' if n % 14 == 0 else ('No current promotion'),
+                  'source_url': f'https://www.kruidvat.nl/oral-care-demo-{n}'
               })
 
-          oral_brands = ["Kruidvat", "Sensodyne", "Oral-B", "Elmex", "Aquafresh", "Colgate", "Listerine", "Parodontax"]
-          oral_forms = ["toothpaste", "mouthwash", "electric brush heads", "manual toothbrush", "whitening toothpaste", "gum care toothpaste"]
-          oral_sizes = [(75, "ml"), (100, "ml"), (500, "ml"), (1, "piece"), (4, "pieces")]
-          for i in range(168):
-              brand = oral_brands[i % len(oral_brands)]
-              form = oral_forms[(i // len(oral_brands)) % len(oral_forms)]
-              size, unit = oral_sizes[(i // 9) % len(oral_sizes)]
-              name = f"{brand} {form.title()} {size}{unit}"
-              base = 2.29 if "toothpaste" in form else (4.99 if "mouthwash" in form else 8.99)
-              price = round(base + (i % 15) * 0.55 + (0 if brand == "Kruidvat" else 1.15), 2)
-              cost_ex = round((price / 1.21) * (0.43 + (i % 5) * 0.03), 2)
-              product_rows.append({
-                  "sku": f"KV-OC-{i+1:03d}", "product_group": "Oral Care", "product_name": name, "brand": brand,
-                  "variant": form, "size_value": size, "unit_type": unit, "pack_count": 1,
-                  "total_units": size, "regular_price_inc_vat": price, "current_kruidvat_promo": "2 for fixed price" if i % 16 == 0 else ("loyalty only" if i % 21 == 0 else "none"),
-                  "synthetic_cost_price_ex_vat": cost_ex, "supplier_funding_per_unit": round(0.18 if brand in ["Oral-B", "Sensodyne"] and i % 6 == 0 else 0, 2),
-                  "min_margin_pct": 22 if brand != "Kruidvat" else 34,
-                  "price_floor_ex_vat": round(cost_ex * 1.11, 2), "kvi_flag": "Y" if brand in ["Sensodyne", "Oral-B"] and i % 7 == 0 else "N",
-                  "private_label_flag": "Y" if brand == "Kruidvat" else "N", "promo_lock_flag": "Y" if i % 31 == 0 else "N"
-              })
+          # Write data files for the app.
+          (data_dir / 'products.json').write_text(json.dumps(products, indent=2), encoding='utf-8')
+          (data_dir / 'competitors.json').write_text(json.dumps(competitors, indent=2), encoding='utf-8')
 
-          def unit_label(row):
-              if row["product_group"] == "Sun Care": return "per 100ml"
-              if row["product_group"] == "Baby Wipes": return "per wipe"
-              if row["unit_type"] in ["ml", "g"]: return "per 75ml/100ml"
-              return "per piece"
-
-          def normalized_price(row, price):
-              if row["product_group"] == "Sun Care":
-                  return round(price / row["total_units"] * 100, 2)
-              if row["product_group"] == "Baby Wipes":
-                  return round(price / row["total_units"], 4)
-              if row["unit_type"] == "ml":
-                  base = 75 if row["size_value"] <= 100 else 100
-                  return round(price / row["total_units"] * base, 2)
-              return round(price / max(1, row["total_units"]), 2)
-
-          labels = [
-              {"label": "Price Alert", "meaning": "High-confidence external match is cheaper.", "logic": "Consider response only if margin and price floor remain safe."},
-              {"label": "Promo Attack", "meaning": "Competitor temporary multi-buy, loyalty or folder action.", "logic": "Avoid permanent price change; consider campaign/coupon response."},
-              {"label": "Margin Block", "meaning": "Matching breaks margin or price floor.", "logic": "Do not match; propose funded alternative or approval path."},
-              {"label": "Banner Alignment Alert", "meaning": "Trekpleister differs from Kruidvat.", "logic": "Internal banner review only."},
-              {"label": "Private Label Value Gap", "meaning": "Own label value position becomes unclear.", "logic": "Review private-label positioning or communication."},
-              {"label": "Manual Review", "meaning": "Evidence, stock, seller or pack size is uncertain.", "logic": "No automated advice; show missing checks."},
-              {"label": "Opportunity", "meaning": "Kruidvat is competitively priced and margin-safe.", "logic": "Keep price; increase visibility or use as proof point."},
-          ]
-
-          promotion_rules = [
-              ["1+1 free", "effective unit price = regular price / 2, required quantity 2"],
-              ["2nd half price", "effective unit price = regular price * 0.75, required quantity 2"],
-              ["3 for 2", "effective unit price = regular price * 0.6667, required quantity 3"],
-              ["25% off", "effective unit price = regular price * 0.75"],
-              ["loyalty only", "mark separately; not equal to public single-unit price"],
-              ["marketplace seller", "manual review unless seller, shipping and pack size are clear"],
-              ["out of stock", "do not use for direct price response"],
-          ]
-
-          # CSV product snapshot
-          csv_path = data / "kruidvat_category_snapshot_pilot.csv"
-          fieldnames = list(product_rows[0].keys())
-          with csv_path.open("w", newline="", encoding="utf-8") as f:
-              writer = csv.DictWriter(f, fieldnames=fieldnames)
+          with open(data_dir / 'kruidvat_category_snapshot_pilot.csv', 'w', newline='', encoding='utf-8') as f:
+              writer = csv.DictWriter(f, fieldnames=list(products[0].keys()))
               writer.writeheader()
-              writer.writerows(product_rows)
+              writer.writerows(products)
 
-          # Competitor CSV
-          with (data / "competitor_scope_all_included.csv").open("w", newline="", encoding="utf-8") as f:
-              writer = csv.DictWriter(f, fieldnames=["name", "role", "type"])
-              writer.writeheader(); writer.writerows(competitors)
+          with open(data_dir / 'competitor_scope_all_included.csv', 'w', newline='', encoding='utf-8') as f:
+              writer = csv.DictWriter(f, fieldnames=['name', 'type', 'role'])
+              writer.writeheader()
+              writer.writerows(competitors)
 
-          # Test cases CSV
-          test_cases = [
-              ["TC_PRICE_001", "Sensodyne Rapid Relief 75ml", "Oral Care", "Competitor cheaper and margin safe", "Price Alert"],
-              ["TC_PROMO_001", "WaterWipes 12 x 60", "Baby Wipes", "Competitor 1+1 free multi-buy", "Promo Attack"],
-              ["TC_MARGIN_001", "NIVEA Sun SPF50 Spray", "Sun Care", "Matching competitor breaks floor", "Margin Block"],
-              ["TC_BANNER_001", "NIVEA Sun SPF50 Spray", "Sun Care", "Trekpleister lower", "Banner Alignment Alert"],
-              ["TC_PRIVATE_LABEL_001", "Kruidvat Solait SPF50", "Sun Care", "Private label value gap", "Private Label Value Gap"],
-              ["TC_MANUAL_001", "Pampers Sensitive Baby Wipes", "Baby Wipes", "Unclear pack size or marketplace seller", "Manual Review"],
-              ["TC_OPPORTUNITY_001", "Kruidvat Oral Care", "Oral Care", "Kruidvat cheaper and margin safe", "Opportunity"],
+          def col_name(index):
+              result = ''
+              while index:
+                  index, rem = divmod(index - 1, 26)
+                  result = chr(65 + rem) + result
+              return result
+
+          def create_xlsx(path, sheets):
+              with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+                  overrides = []
+                  rels = []
+                  workbook_sheets = []
+                  for idx, (sheet_name, rows) in enumerate(sheets, start=1):
+                      safe_name = escape(sheet_name[:31])
+                      workbook_sheets.append(f'<sheet name="{safe_name}" sheetId="{idx}" r:id="rId{idx}"/>')
+                      rels.append(f'<Relationship Id="rId{idx}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{idx}.xml"/>')
+                      overrides.append(f'<Override PartName="/xl/worksheets/sheet{idx}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>')
+                      sheet_rows = []
+                      for r_idx, row in enumerate(rows, start=1):
+                          cells = []
+                          for c_idx, value in enumerate(row, start=1):
+                              ref = f'{col_name(c_idx)}{r_idx}'
+                              if isinstance(value, (int, float)) and not isinstance(value, bool):
+                                  cells.append(f'<c r="{ref}"><v>{value}</v></c>')
+                              else:
+                                  text = escape(str(value))
+                                  cells.append(f'<c r="{ref}" t="inlineStr"><is><t>{text}</t></is></c>')
+                          sheet_rows.append(f'<row r="{r_idx}">{"".join(cells)}</row>')
+                      sheet_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' + ''.join(sheet_rows) + '</sheetData></worksheet>'
+                      z.writestr(f'xl/worksheets/sheet{idx}.xml', sheet_xml)
+                  z.writestr('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' + ''.join(overrides) + '</Types>')
+                  z.writestr('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+                  z.writestr('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + ''.join(workbook_sheets) + '</sheets></workbook>')
+                  z.writestr('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + ''.join(rels) + '</Relationships>')
+
+          product_headers = list(products[0].keys())
+          product_rows = [product_headers] + [[p[h] for h in product_headers] for p in products]
+          competitor_rows = [['name', 'type', 'role']] + [[c['name'], c['type'], c['role']] for c in competitors]
+          test_rows = [
+              ['test_id', 'scenario', 'expected_ai_label'],
+              ['TC_PRICE_ALERT', 'External exact match is cheaper and margin is safe', 'Price Alert'],
+              ['TC_PROMO_MARGIN', 'Competitor promotion is lower but matching breaks margin', 'Margin Block'],
+              ['TC_BANNER', 'Trekpleister differs from Kruidvat', 'Banner Alignment Alert'],
+              ['TC_PRIVATE_LABEL', 'Private-label value gap is unclear', 'Private Label Value Gap'],
+              ['TC_MANUAL_REVIEW', 'Pack size or marketplace seller is uncertain', 'Manual Review'],
+              ['TC_OPPORTUNITY', 'Kruidvat is cheaper and margin-safe', 'Opportunity'],
           ]
-          with (data / "advisor_test_cases.csv").open("w", newline="", encoding="utf-8") as f:
-              writer = csv.writer(f)
-              writer.writerow(["test_id", "product", "product_group", "scenario", "expected_label"])
-              writer.writerows(test_cases)
+          create_xlsx(doc_dir / 'ASW_Kruidvat_Price_Advisor_Data_Pack_EN.xlsx', [
+              ('Products', product_rows),
+              ('Competitors', competitor_rows),
+              ('Acceptance tests', test_rows),
+          ])
 
-          # XLSX data pack
-          wb = Workbook()
-          ws = wb.active
-          ws.title = "Product_Snapshot"
-          ws.append(fieldnames)
-          for row in product_rows:
-              ws.append([row[k] for k in fieldnames])
-          for wsx in [ws]:
-              header_fill = PatternFill("solid", fgColor=RED)
-              header_font = Font(color="FFFFFF", bold=True)
-              thin = Side(border_style="thin", color="DDDDDD")
-              for cell in wsx[1]:
-                  cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center"); cell.border = Border(bottom=thin)
-              wsx.freeze_panes = "A2"
-              for col in range(1, wsx.max_column + 1):
-                  wsx.column_dimensions[get_column_letter(col)].width = min(34, max(12, len(str(wsx.cell(1, col).value)) + 3))
-          ws2 = wb.create_sheet("Competitors")
-          ws2.append(["name", "role", "type"])
-          for c in competitors: ws2.append([c["name"], c["role"], c["type"]])
-          ws3 = wb.create_sheet("AI_Labels")
-          ws3.append(["label", "meaning", "action_logic"])
-          for l in labels: ws3.append([l["label"], l["meaning"], l["logic"]])
-          ws4 = wb.create_sheet("Promotion_Rules")
-          ws4.append(["promotion_text", "interpretation"])
-          for r in promotion_rules: ws4.append(r)
-          ws5 = wb.create_sheet("Test_Cases")
-          ws5.append(["test_id", "product", "product_group", "scenario", "expected_label"])
-          for tc in test_cases: ws5.append(tc)
-          for wsx in [ws2, ws3, ws4, ws5]:
-              for cell in wsx[1]:
-                  cell.fill = PatternFill("solid", fgColor=YELLOW); cell.font = Font(color=DARK, bold=True)
-              wsx.freeze_panes = "A2"
-              for col in range(1, wsx.max_column + 1):
-                  wsx.column_dimensions[get_column_letter(col)].width = 30
-          xlsx_path = docs / "ASW_Kruidvat_Price_Advisor_Data_Pack_EN.xlsx"
-          wb.save(xlsx_path)
+          def create_docx(path, title, paragraphs):
+              body = []
+              body.append(f'<w:p><w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t>{escape(title)}</w:t></w:r></w:p>')
+              for p in paragraphs:
+                  if isinstance(p, (list, tuple)):
+                      for item in p:
+                          body.append(f'<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>{escape(str(item))}</w:t></w:r></w:p>')
+                  else:
+                      body.append(f'<w:p><w:r><w:t>{escape(str(p))}</w:t></w:r></w:p>')
+              document_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + ''.join(body) + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>'
+              with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+                  z.writestr('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+                  z.writestr('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+                  z.writestr('word/document.xml', document_xml)
 
-          def make_docx(filename, title, sections):
-              doc = Document()
-              style = doc.styles["Normal"]
-              style.font.name = "Arial"
-              style.font.size = Pt(10)
-              p = doc.add_paragraph()
-              r = p.add_run("KRUIDVAT")
-              r.bold = True; r.font.size = Pt(18); r.font.color.rgb = RGBColor(227, 6, 19)
-              p2 = doc.add_paragraph()
-              r2 = p2.add_run(title)
-              r2.bold = True; r2.font.size = Pt(16)
-              doc.add_paragraph("Workshop pilot document. Synthetic commercial data only. Do not use real AS Watson cost or margin data.")
-              for heading, body in sections:
-                  doc.add_heading(heading, level=1)
-                  for para in body.split("\n"):
-                      para = para.strip()
-                      if not para: continue
-                      if para.startswith("- "):
-                          doc.add_paragraph(para[2:], style="List Bullet")
-                      else:
-                          doc.add_paragraph(para)
-              path = docs / filename
-              doc.save(path)
-              return path
+          create_docx(doc_dir / '01_Workshop_Briefing_ASW_Kruidvat_Price_Agent_EN.docx', 'AS Watson / Kruidvat Promo & Price Advisory AI Agent Workshop', [
+              'Business challenge: Kruidvat is under pressure from price perception and fast-moving competitor pricing. The agent must turn competitor signals into human-approved commercial advice.',
+              'Pilot scope: Sun Care, Baby Wipes and Oral Care. All competitors are in scope: Etos, Albert Heijn, Trekpleister, DA, De Online Drogist, Drogist.nl, Plein.nl, bol.com, Amazon.nl, Action, Die Grenze, Jumbo and PLUS.',
+              'Minimum functionality:',
+              ['Upload or load data pack and RAG documents.', 'Run a scan across the three product groups.', 'Match products and show confidence.', 'Interpret promotions.', 'Normalize prices.', 'Check margin and price floor.', 'Generate AI action labels and a Daily Price Brief.', 'Show evidence and export alerts.'],
+              'Human-in-the-loop rule: the agent may advise only. It may never change prices automatically.',
+          ])
 
-          briefing = make_docx(
-              "01_Workshop_Briefing_ASW_Kruidvat_Price_Agent_EN.docx",
-              "Promo & Price Advisory AI Agent Workshop Briefing",
-              [
-                  ("Business challenge", "AS Watson wants to pilot an AI agent for Kruidvat that does more than track competitor prices. The agent must turn price and promotion signals into margin-aware, policy-grounded commercial advice. Consumers increasingly report that comparable products are cheaper elsewhere, while purchase cost, supplier funding, minimum margin, promo locks and pack sizes make it hard to respond safely and quickly."),
-                  ("Pilot scope", "Mandatory product groups: Sun Care, Baby Wipes and Oral Care. There is no stretch scope. Mandatory competitors: Etos, Albert Heijn, Trekpleister, DA, De Online Drogist, Drogist.nl, Plein.nl, bol.com, Amazon.nl, Action, Die Grenze, Jumbo and PLUS."),
-                  ("What teams must build", "- Hosted live tool\n- RAG document upload\n- Data pack upload or load\n- Run scan button\n- Dashboard with KPI cards, alert table and evidence drawer\n- Daily Price Brief\n- CSV export\n- Human-in-the-loop recommendations only"),
-                  ("Core distinction", "A tracker shows a price gap. The AI agent must explain the gap, apply policy, classify the risk and recommend the next safe human action."),
-              ],
-          )
+          create_docx(doc_dir / '02_RAG_Pricing_Margin_Policy_SYNTHETIC_EN.docx', 'Synthetic Pricing and Margin Policy', [
+              'This document is synthetic workshop data. It does not contain real AS Watson or Kruidvat commercial data.',
+              'Internal policy overrides external live web evidence. External evidence is only used for current competitor price, promotion and availability signals.',
+              'Rules:',
+              ['Never recommend a price below the synthetic price floor.', 'If matching a competitor would break minimum margin, label the alert as Margin Block.', 'KVI products may receive more aggressive advice but still require human approval.', 'Private-label products must not be treated as exact matches for A-brands.', 'Trekpleister is an internal banner benchmark, not an external competitor.', 'Marketplace listings require Manual Review unless seller, pack size and shipping are clear.'],
+          ])
 
-          pricing_doc = make_docx(
-              "02_RAG_Pricing_Margin_Policy_SYNTHETIC_EN.docx",
-              "RAG Pricing and Margin Policy - Synthetic",
-              [
-                  ("Authority of sources", "The synthetic pricing policy and uploaded Kruidvat data pack are the internal source of truth. Live web findings are only evidence for current competitor price, promotion and availability. When policy and web evidence conflict, policy wins."),
-                  ("Margin guardrails", "- Never recommend a direct match below the synthetic price floor.\n- Never recommend a direct match if margin would fall below minimum margin unless the output explicitly says human approval is required.\n- Include supplier funding when calculating effective margin.\n- KVI products can receive more aggressive advice, but still require approval when margin is at risk."),
-                  ("Decision rules", "If a high-confidence external match is cheaper and margin remains safe, label Price Alert. If the competitor price is driven by multi-buy or loyalty mechanics, label Promo Attack. If matching would break margin or price floor, label Margin Block. If Trekpleister differs from Kruidvat, label Banner Alignment Alert. If private label value position becomes unclear, label Private Label Value Gap. If evidence is uncertain, label Manual Review. If Kruidvat is cheaper and margin-safe, label Opportunity."),
-              ],
-          )
+          create_docx(doc_dir / '03_RAG_Promotion_Matching_AI_Action_Rules_EN.docx', 'Promotion, Matching and AI Action Rules', [
+              'Promotion parser rules:',
+              ['1+1 free equals 50 percent effective discount when buying two.', 'Second half price equals 25 percent effective discount when buying two.', '3 for 2 equals 33.3 percent effective discount when buying three.', 'Percentage discounts are applied to current visible price.', 'Loyalty-only, online-only or future promotions must be flagged in evidence.'],
+              'Matching rules:',
+              ['Exact EAN or same brand, variant, size and pack count is high-confidence.', 'Different pack sizes may be normalized but require a confidence note.', 'Private-label equivalents are functional benchmarks only.', 'Marketplace and out-of-stock sources are not safe for automatic advice.'],
+              'AI labels: Price Alert, Promo Attack, Margin Block, Banner Alignment Alert, Private Label Value Gap, Manual Review and Opportunity.',
+          ])
 
-          promo_doc = make_docx(
-              "03_RAG_Promotion_Matching_AI_Action_Rules_EN.docx",
-              "RAG Promotion, Matching and AI Action Rules",
-              [
-                  ("Product matching", "Use EAN when available. If EAN is missing, match on brand, variant, size, pack count, SPF/flavour/form and title similarity. Marketplace listings require manual review if seller, shipping, stock or pack size is unclear. Private-label equivalents are functional benchmarks, not exact SKU matches."),
-                  ("Promotion parser", "- 1+1 free means effective price equals regular price divided by two, with minimum quantity two.\n- 2nd half price means effective price equals 75 percent of regular price, with minimum quantity two.\n- 3 for 2 means effective price equals 66.7 percent of regular price, with minimum quantity three.\n- Loyalty-only prices must be marked separately.\n- Future promotions and out-of-stock items cannot drive direct pricing advice."),
-                  ("Price normalization", "Sun Care must be normalized per 100ml or 100g. Baby Wipes must be normalized per wipe. Oral Care must be normalized per 75ml, 100ml or piece depending on product type."),
-                  ("Output requirements", "Every alert must show product group, product, competitor, AI label, risk level, confidence, Kruidvat price, competitor price, normalized price, promotion text, margin status, recommended action, evidence source and human check."),
-              ],
-          )
+          create_docx(doc_dir / '04_Master_Prompt_Template_ASW_Kruidvat_EN.docx', 'Master Prompt Template', [
+              'Role and goal: You are a Kruidvat Promo and Price Advisory Agent. Your task is to classify price and promotion signals and recommend the next safe human action.',
+              'Business context: Consumers report that competitors are cheaper. Category teams need faster, grounded and margin-aware advice.',
+              'Sources: Use the data pack for Kruidvat price, synthetic cost and margin. Use RAG policy documents for rules. Use live public web sources only for competitor evidence.',
+              'Rules and guardrails: no invented prices, no automatic price changes, no advice below price floor, no exact match for private-label alternatives, and human review for uncertain evidence.',
+              'Output schema: KPI summary, alert table, evidence drawer, margin reasoning, recommended action and Daily Price Brief.',
+              'Self-check: list missing evidence, uncertain matches, stale sources and unsupported claims.',
+          ])
 
-          master_doc = make_docx(
-              "04_Master_Prompt_Template_ASW_Kruidvat_EN.docx",
-              "Master Prompt Template",
-              [
-                  ("Role and goal", "You are the Kruidvat Promo & Price Advisory Agent. Your goal is to transform live competitor price and promotion evidence into margin-aware, policy-grounded commercial advice for a human pricing or category manager. You never change prices automatically."),
-                  ("Business context", "Kruidvat is under pressure from competitors and consumer price perception. Competitor prices and promotions change constantly. Purchase cost, margin, supplier funding, promo locks and pack sizes make fast response difficult without AI-assisted reasoning."),
-                  ("Sources", "Use uploaded data pack for Kruidvat product, price, cost and margin data. Use uploaded RAG policy documents for pricing policy, promotion logic, matching rules and AI labels. Use public web evidence only for current competitor price, promotion and availability."),
-                  ("Rules and guardrails", "Do not invent prices or URLs. Do not recommend below price floor. Do not treat Trekpleister as an external competitor. Do not treat private label as exact SKU match. Use Manual Review when evidence is uncertain. Always include confidence and human approval."),
-                  ("Output schema", "Return KPI summary, alert table, evidence per alert, margin reasoning, AI action label, recommended human action and Daily Price Brief."),
-                  ("Self-check", "Before final output, check missing data, stale sources, uncertain matches, marketplace ambiguity, pack-size ambiguity, margin blocks and unsupported claims."),
-              ],
-          )
+          acceptance_yaml = "\n".join([
+              "version: 1",
+              "owner: AS Watson / Kruidvat workshop",
+              "purpose: Validate the Promo and Price Advisory AI Agent",
+              "pilot_scope:",
+              "  product_groups_required:",
+              "    - Sun Care",
+              "    - Baby Wipes",
+              "    - Oral Care",
+              "  competitors_required:",
+              "    - Etos",
+              "    - Albert Heijn",
+              "    - Trekpleister",
+              "    - DA",
+              "    - De Online Drogist",
+              "    - Drogist.nl",
+              "    - Plein.nl",
+              "    - bol.com",
+              "    - Amazon.nl",
+              "    - Action",
+              "    - Die Grenze",
+              "    - Jumbo",
+              "    - PLUS",
+              "ai_labels_allowed:",
+              "  - Price Alert",
+              "  - Promo Attack",
+              "  - Margin Block",
+              "  - Banner Alignment Alert",
+              "  - Private Label Value Gap",
+              "  - Manual Review",
+              "  - Opportunity",
+              "critical_failures:",
+              "  - Automatic price change",
+              "  - Advice below price floor",
+              "  - Invented price or URL",
+              "  - Oral Care missing",
+              "  - Competitors treated as stretch",
+              "  - Marketplace direct response without Manual Review",
+              "",
+          ])
+          (doc_dir / 'kruidvat_agent_acceptance_tests.yaml').write_text(acceptance_yaml, encoding='utf-8')
 
-          # Acceptance YAML as downloadable document
-          acceptance_yaml = docs / "kruidvat_agent_acceptance_tests.yaml"
-          acceptance_yaml.write_text(dedent("""          version: 1
-          owner: AS Watson / Kruidvat workshop pilot
-          purpose: Validate that the hosted agent is an AI advisory layer, not a standard price tracker.
-          pilot_scope:
-            product_groups_required:
-              - Sun Care
-              - Baby Wipes
-              - Oral Care
-            competitors_required:
-              - Etos
-              - Albert Heijn
-              - Trekpleister
-              - DA
-              - De Online Drogist
-              - Drogist.nl
-              - Plein.nl
-              - bol.com
-              - Amazon.nl
-              - Action
-              - Die Grenze
-              - Jumbo
-              - PLUS
-          ai_labels_allowed:
-            - Price Alert
-            - Promo Attack
-            - Margin Block
-            - Banner Alignment Alert
-            - Private Label Value Gap
-            - Manual Review
-            - Opportunity
-          critical_failures:
-            - Automatic price change
-            - Advice below price floor
-            - Invented price or URL
-            - Oral Care missing
-            - Competitors treated as stretch
-            - Marketplace direct response without Manual Review
-          """).strip() + "\n", encoding="utf-8")
+          # Bundle all upload documents.
+          with zipfile.ZipFile(doc_dir / 'ASW_Kruidvat_Upload_Documents.zip', 'w', zipfile.ZIP_DEFLATED) as bundle:
+              for item in sorted(doc_dir.iterdir()):
+                  if item.name != 'ASW_Kruidvat_Upload_Documents.zip':
+                      bundle.write(item, arcname=item.name)
+              bundle.write(data_dir / 'kruidvat_category_snapshot_pilot.csv', arcname='kruidvat_category_snapshot_pilot.csv')
+              bundle.write(data_dir / 'competitor_scope_all_included.csv', arcname='competitor_scope_all_included.csv')
 
-          # README
-          (docs / "README_UPLOAD_THESE_FILES.txt").write_text(dedent("""          Upload these workshop files into the agent:
-
-          1. ASW_Kruidvat_Price_Advisor_Data_Pack_EN.xlsx
-          2. 01_Workshop_Briefing_ASW_Kruidvat_Price_Agent_EN.docx
-          3. 02_RAG_Pricing_Margin_Policy_SYNTHETIC_EN.docx
-          4. 03_RAG_Promotion_Matching_AI_Action_Rules_EN.docx
-          5. 04_Master_Prompt_Template_ASW_Kruidvat_EN.docx
-
-          The commercial data is synthetic. Do not use real AS Watson/Kruidvat purchasing costs, margins or confidential pricing data in the workshop.
-          """).strip() + "\n", encoding="utf-8")
-
-          # Zip all docs
-          zip_path = docs / "ASW_Kruidvat_Upload_Documents.zip"
-          with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-              for p in docs.iterdir():
-                  if p.name != zip_path.name:
-                      z.write(p, p.name)
-              z.write(csv_path, "data/kruidvat_category_snapshot_pilot.csv")
-              z.write(data / "competitor_scope_all_included.csv", "data/competitor_scope_all_included.csv")
-              z.write(data / "advisor_test_cases.csv", "data/advisor_test_cases.csv")
-
-          # Create embedded alerts for frontend
-          def make_alert(row, idx):
-              c = competitors[(idx * 7 + len(row["sku"])) % len(competitors)]
-              scenario = idx % 7
-              own = row["regular_price_inc_vat"]
-              promo = "none"
-              confidence = 91
-              comp_price = round(own * 0.94, 2)
-              label = "Price Alert"
-              risk = "Amber"
-              action = "Consider tactical response if margin and price floor remain safe."
-              human = "Confirm source price and stock before any commercial action."
-              if scenario == 0:
-                  c = next(x for x in competitors if x["name"] == "Etos")
-                  promo = "1+1 free"
-                  comp_price = round(own * 0.50, 2)
-                  label = "Promo Attack"
-                  risk = "Amber"
-                  action = "Avoid permanent price change; consider campaign, coupon or supplier-funded promotion."
-              elif scenario == 1:
-                  c = next(x for x in competitors if x["name"] == "Albert Heijn")
-                  promo = "25% off"
-                  comp_price = round(own * 0.73, 2)
-                  label = "Margin Block"
-                  risk = "Red"
-                  action = "Do not match directly; margin or price floor would be at risk."
-              elif scenario == 2:
-                  c = next(x for x in competitors if x["name"] == "Trekpleister")
-                  promo = "regular price"
-                  comp_price = round(own * 0.91, 2)
-                  label = "Banner Alignment Alert"
-                  risk = "Amber"
-                  action = "Internal banner alignment review only; do not treat as external competitor response."
-              elif scenario == 3 and row["private_label_flag"] == "Y":
-                  c = next(x for x in competitors if x["name"] in ["Etos", "Action"])
-                  promo = "private-label benchmark"
-                  comp_price = round(own * 0.88, 2)
-                  label = "Private Label Value Gap"
-                  risk = "Amber"
-                  action = "Review own-label value perception and PDP communication; not an exact SKU match."
-                  confidence = 72
-              elif scenario == 4:
-                  c = next(x for x in competitors if x["name"] in ["bol.com", "Amazon.nl"])
-                  promo = "marketplace seller price"
-                  comp_price = round(own * 0.87, 2)
-                  label = "Manual Review"
-                  risk = "Grey"
-                  action = "No automated advice; verify seller, pack size, shipping and stock."
-                  confidence = 58
-              elif scenario == 5:
-                  c = next(x for x in competitors if x["name"] == "DA")
-                  promo = "regular price"
-                  comp_price = round(own * 1.09, 2)
-                  label = "Opportunity"
-                  risk = "Green"
-                  action = "Keep price; consider visibility boost or use as price perception proof point."
-                  confidence = 88
-              else:
-                  c = competitors[(idx + 3) % len(competitors)]
-                  promo = "regular price"
-                  comp_price = round(own * 0.93, 2)
-                  label = "Price Alert"
-                  risk = "Amber"
-                  action = "Review tactical price or promotion response if margin-safe."
-                  confidence = 86
-
-              comp_ex = comp_price / 1.21
-              margin_after = round(((comp_ex - row["synthetic_cost_price_ex_vat"] + row["supplier_funding_per_unit"]) / max(comp_ex, 0.01)) * 100, 1)
-              if margin_after < row["min_margin_pct"] and label in ["Price Alert", "Promo Attack"]:
-                  label = "Margin Block"
-                  risk = "Red"
-                  action = "Do not match directly; proposed competitor response would breach minimum margin or price floor."
-              return {
-                  "sku": row["sku"], "productGroup": row["product_group"], "productName": row["product_name"],
-                  "brand": row["brand"], "competitor": c["name"], "competitorType": c["type"], "label": label,
-                  "risk": risk, "confidence": confidence, "ownPrice": own, "competitorPrice": comp_price,
-                  "ownUnitPrice": normalized_price(row, own), "competitorUnitPrice": normalized_price(row, comp_price),
-                  "unitLabel": unit_label(row), "promoText": promo, "marginAfterMatchPct": margin_after,
-                  "minMarginPct": row["min_margin_pct"], "priceFloorExVat": row["price_floor_ex_vat"],
-                  "sourceUrl": "https://example.com/public-competitor-source/" + c["name"].lower().replace(" ", "-").replace(".", ""),
-                  "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"), "recommendedAction": action,
-                  "humanCheck": human
-              }
-
-          alerts = [make_alert(r, idx) for idx, r in enumerate(product_rows)]
-
-          html = f"""<!doctype html>
-          <html lang=\"en\">
+          index_html = r'''<!doctype html>
+          <html lang="en">
           <head>
-            <meta charset=\"utf-8\" />
-            <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-            <title>Kruidvat Promo & Price Advisor Agent</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Kruidvat Promo & Price Advisory Agent</title>
             <style>
-              :root {{ --red:#e30613; --yellow:#ffd600; --dark:#1f1f1f; --muted:#666; --bg:#f7f7f7; --card:#fff; --green:#138a36; --amber:#b56a00; --grey:#777; }}
-              * {{ box-sizing:border-box; }} body {{ margin:0; font-family:Arial, Helvetica, sans-serif; background:var(--bg); color:var(--dark); }}
-              header {{ background:var(--red); color:white; padding:22px 34px; border-bottom:8px solid var(--yellow); }}
-              .brand {{ display:flex; align-items:center; gap:16px; }} .logo {{ background:var(--yellow); color:var(--red); font-weight:900; padding:12px 18px; border-radius:10px; font-size:28px; }}
-              main {{ max-width:1380px; margin:24px auto; padding:0 20px; }}
-              .hero, .panel {{ background:#fff; border-radius:18px; padding:24px; box-shadow:0 8px 26px rgba(0,0,0,.08); margin-bottom:18px; }}
-              h1 {{ margin:0 0 10px; font-size:34px; }} h2 {{ margin-top:0; }} .muted {{ color:var(--muted); line-height:1.45; }}
-              .grid {{ display:grid; grid-template-columns: 330px 1fr; gap:18px; align-items:start; }}
-              .cards {{ display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; margin-bottom:16px; }}
-              .card {{ background:#fff; border-radius:15px; padding:16px; border-top:5px solid var(--red); box-shadow:0 4px 14px rgba(0,0,0,.06); }}
-              .metric {{ font-size:28px; font-weight:900; color:var(--red); }} .label {{ color:var(--muted); font-size:13px; }}
-              button, .button {{ background:var(--red); color:white; border:0; padding:11px 14px; border-radius:10px; font-weight:700; cursor:pointer; text-decoration:none; display:inline-block; margin:4px 4px 4px 0; }}
-              .button.secondary, button.secondary {{ background:#222; }} .button.yellow {{ background:var(--yellow); color:#111; }}
-              input, select {{ width:100%; padding:10px; border:1px solid #ccc; border-radius:10px; margin:6px 0 12px; }}
-              table {{ width:100%; border-collapse:collapse; font-size:13px; }} th, td {{ padding:10px; border-bottom:1px solid #eee; text-align:left; vertical-align:top; }} th {{ background:#222; color:white; position:sticky; top:0; }} tr:hover {{ background:#fff7cc; }}
-              .tablewrap {{ max-height:560px; overflow:auto; border:1px solid #eee; border-radius:12px; }}
-              .pill {{ display:inline-block; padding:5px 9px; border-radius:999px; font-weight:800; font-size:12px; }} .Red {{ background:#ffe1e1; color:#b00000; }} .Amber {{ background:#fff1d6; color:#8a4e00; }} .Green {{ background:#e3f6e9; color:#0b6b2d; }} .Grey {{ background:#eee; color:#444; }}
-              .doclist a {{ display:block; margin:8px 0; color:#111; font-weight:700; }} .small {{ font-size:12px; color:#666; }}
-              .drawer {{ display:none; margin-top:12px; padding:16px; border-left:5px solid var(--red); background:#fffdf0; border-radius:12px; }} .drawer.open {{ display:block; }}
-              textarea {{ width:100%; min-height:160px; border-radius:12px; border:1px solid #ccc; padding:12px; }}
-              @media(max-width:1000px) {{ .grid {{ grid-template-columns:1fr; }} .cards {{ grid-template-columns:1fr 1fr; }} }}
+              :root { --red: #e30613; --yellow: #ffd500; --ink: #222; --muted: #6b7280; --bg: #f5f5f5; --card: #fff; --green: #087f5b; --amber: #b7791f; --line: #e5e7eb; }
+              * { box-sizing: border-box; }
+              body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: var(--ink); }
+              header { background: var(--red); color: #fff; border-bottom: 10px solid var(--yellow); padding: 22px 28px; }
+              .brand { display: flex; gap: 16px; align-items: center; }
+              .logo { background: var(--yellow); color: var(--red); font-weight: 900; padding: 10px 18px; border-radius: 10px; font-size: 28px; letter-spacing: -.5px; }
+              .wrap { max-width: 1440px; margin: 0 auto; padding: 22px; }
+              .hero { background: #fff; border-radius: 18px; padding: 24px; box-shadow: 0 8px 24px rgba(0,0,0,.07); display: grid; grid-template-columns: 1.35fr .65fr; gap: 20px; }
+              h1 { margin: 0 0 8px; font-size: 34px; }
+              h2 { margin: 0 0 12px; }
+              p { line-height: 1.5; }
+              .sub { color: var(--muted); font-size: 17px; }
+              .btn { border: 0; background: var(--red); color: #fff; padding: 11px 16px; border-radius: 10px; font-weight: 800; cursor: pointer; text-decoration: none; display: inline-block; margin: 4px 6px 4px 0; }
+              .btn.alt { background: #111827; }
+              .btn.yellow { background: var(--yellow); color: #111; }
+              .btn.ghost { background: white; color: var(--red); border: 2px solid var(--red); }
+              .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0; }
+              .card { background: var(--card); border-radius: 16px; padding: 18px; box-shadow: 0 6px 18px rgba(0,0,0,.06); }
+              .metric { font-size: 30px; font-weight: 900; color: var(--red); }
+              .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+              .panel { background: #fff; border-radius: 18px; padding: 20px; margin-top: 18px; box-shadow: 0 6px 18px rgba(0,0,0,.06); }
+              .layout { display: grid; grid-template-columns: 280px 1fr 360px; gap: 18px; align-items: start; }
+              select, input[type=file], input[type=text] { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; margin: 6px 0 12px; }
+              table { width: 100%; border-collapse: collapse; font-size: 13px; }
+              th, td { text-align: left; padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+              th { background: #fafafa; position: sticky; top: 0; z-index: 1; }
+              .tablewrap { max-height: 590px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
+              .pill { display: inline-block; padding: 5px 9px; border-radius: 999px; font-weight: 800; font-size: 12px; }
+              .risk-high { background: #fee2e2; color: #991b1b; }
+              .risk-med { background: #fef3c7; color: #92400e; }
+              .risk-low { background: #dcfce7; color: #166534; }
+              .evidence { white-space: pre-wrap; background: #111827; color: #e5e7eb; padding: 14px; border-radius: 12px; font-size: 12px; line-height: 1.5; }
+              .brief { white-space: pre-wrap; background: #fff7d6; border: 1px solid #f2c94c; padding: 14px; border-radius: 12px; }
+              .docs a { display: block; color: var(--red); text-decoration: none; margin: 7px 0; font-weight: 700; }
+              .small { font-size: 12px; color: var(--muted); }
+              .loaded { background: #f9fafb; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 10px; font-size: 12px; min-height: 56px; }
+              @media (max-width: 1100px) { .hero, .layout { grid-template-columns: 1fr; } .grid { grid-template-columns: repeat(2, 1fr); } }
+              @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
             </style>
           </head>
           <body>
-            <header><div class=\"brand\"><div class=\"logo\">Kruidvat</div><div><b>AS Watson Pilot</b><br/>Promo & Price Advisory AI Agent</div></div></header>
-            <main>
-              <section class=\"hero\">
-                <h1>Kruidvat Promo & Price Advisor Agent</h1>
-                <p class=\"muted\">Hosted workshop app. Download the supplied upload documents below, upload them in the left panel, then run the advisory scan. The app demonstrates the AI advisory layer: it explains price gaps, applies margin and policy guardrails, classifies risk and recommends the next safe human action.</p>
-                <a class=\"button yellow\" href=\"workshop-documents/ASW_Kruidvat_Upload_Documents.zip\" download>Download all upload documents</a>
-                <a class=\"button secondary\" href=\"workshop-documents/ASW_Kruidvat_Price_Advisor_Data_Pack_EN.xlsx\" download>Download Excel data pack</a>
+            <header>
+              <div class="brand">
+                <div class="logo">Kruidvat</div>
+                <div><strong>AS Watson Pilot</strong><br>Promo & Price Advisory AI Agent</div>
+              </div>
+            </header>
+            <main class="wrap">
+              <section class="hero">
+                <div>
+                  <h1>Promo & Price Advisory Agent</h1>
+                  <p class="sub">A hosted workshop agent that goes beyond price tracking: it classifies competitor signals, applies synthetic margin and price-floor policy, and recommends the next safe human action.</p>
+                  <a class="btn yellow" href="workshop-documents/ASW_Kruidvat_Upload_Documents.zip">Download all upload documents</a>
+                  <button class="btn" id="runBtn">Run AI advisory scan</button>
+                  <button class="btn ghost" id="exportBtn">Export alerts CSV</button>
+                </div>
+                <div class="docs">
+                  <strong>Upload documents</strong>
+                  <a href="workshop-documents/ASW_Kruidvat_Price_Advisor_Data_Pack_EN.xlsx">Data Pack XLSX</a>
+                  <a href="workshop-documents/01_Workshop_Briefing_ASW_Kruidvat_Price_Agent_EN.docx">Workshop Briefing DOCX</a>
+                  <a href="workshop-documents/02_RAG_Pricing_Margin_Policy_SYNTHETIC_EN.docx">Pricing & Margin Policy DOCX</a>
+                  <a href="workshop-documents/03_RAG_Promotion_Matching_AI_Action_Rules_EN.docx">Promotion & Matching Rules DOCX</a>
+                  <a href="workshop-documents/04_Master_Prompt_Template_ASW_Kruidvat_EN.docx">Master Prompt Template DOCX</a>
+                  <a href="workshop-documents/kruidvat_agent_acceptance_tests.yaml">YAML Acceptance Spec</a>
+                  <div class="small">Generated on ''' + now + r'''. Commercial data is synthetic.</div>
+                </div>
               </section>
-              <div class=\"grid\">
-                <aside class=\"panel\">
-                  <h2>1. Upload workshop documents</h2>
-                  <div class=\"doclist\">
-                    <a href=\"workshop-documents/01_Workshop_Briefing_ASW_Kruidvat_Price_Agent_EN.docx\" download>01 Workshop Briefing</a>
-                    <a href=\"workshop-documents/02_RAG_Pricing_Margin_Policy_SYNTHETIC_EN.docx\" download>02 RAG Pricing & Margin Policy</a>
-                    <a href=\"workshop-documents/03_RAG_Promotion_Matching_AI_Action_Rules_EN.docx\" download>03 RAG Promotion & Matching Rules</a>
-                    <a href=\"workshop-documents/04_Master_Prompt_Template_ASW_Kruidvat_EN.docx\" download>04 Master Prompt Template</a>
-                    <a href=\"workshop-documents/kruidvat_agent_acceptance_tests.yaml\" download>Acceptance test YAML</a>
-                  </div>
-                  <label>Upload Excel data pack</label><input id=\"dataUpload\" type=\"file\" accept=\".xlsx,.csv\" />
-                  <label>Upload RAG documents</label><input id=\"ragUpload\" type=\"file\" multiple accept=\".docx,.txt,.md,.pdf\" />
-                  <div id=\"uploaded\" class=\"small\">No files uploaded yet. Built-in workshop data is available.</div>
-                  <button onclick=\"markLoaded()\">Mark documents loaded</button>
-                  <hr/>
-                  <h2>2. Filters</h2>
-                  <label>Product group</label><select id=\"groupFilter\"><option>All</option><option>Sun Care</option><option>Baby Wipes</option><option>Oral Care</option></select>
-                  <label>AI label</label><select id=\"labelFilter\"><option>All</option>{''.join(f'<option>{l["label"]}</option>' for l in labels)}</select>
-                  <button onclick=\"runScan()\">Run advisory scan</button>
-                  <button class=\"secondary\" onclick=\"exportCsv()\">Export alerts CSV</button>
+
+              <section class="grid" id="kpis"></section>
+
+              <section class="layout">
+                <aside class="panel">
+                  <h2>Controls</h2>
+                  <label>Product group</label>
+                  <select id="groupFilter"><option>All</option><option>Sun Care</option><option>Baby Wipes</option><option>Oral Care</option></select>
+                  <label>AI label</label>
+                  <select id="labelFilter"><option>All</option><option>Price Alert</option><option>Promo Attack</option><option>Margin Block</option><option>Banner Alignment Alert</option><option>Private Label Value Gap</option><option>Manual Review</option><option>Opportunity</option></select>
+                  <label>Competitor</label>
+                  <select id="competitorFilter"><option>All</option></select>
+                  <label>RAG upload simulation</label>
+                  <input type="file" id="ragUpload" multiple>
+                  <div class="loaded" id="loadedDocs">No documents uploaded yet. Download the supplied documents above and upload them here for workshop simulation.</div>
+                  <p class="small">This static GitHub Pages version uses generated synthetic competitor evidence. Add a backend later for real live web search and API keys.</p>
                 </aside>
-                <section>
-                  <div class=\"cards\">
-                    <div class=\"card\"><div class=\"metric\" id=\"mProducts\">0</div><div class=\"label\">Products scanned</div></div>
-                    <div class=\"card\"><div class=\"metric\">13</div><div class=\"label\">Competitors in scope</div></div>
-                    <div class=\"card\"><div class=\"metric\" id=\"mMatches\">0</div><div class=\"label\">Matches/evidence items</div></div>
-                    <div class=\"card\"><div class=\"metric\" id=\"mRed\">0</div><div class=\"label\">Red risk alerts</div></div>
-                    <div class=\"card\"><div class=\"metric\" id=\"mManual\">0</div><div class=\"label\">Manual review cases</div></div>
-                  </div>
-                  <div class=\"panel\">
-                    <h2>Alert dashboard</h2>
-                    <div class=\"tablewrap\"><table><thead><tr><th>Product</th><th>Group</th><th>Competitor</th><th>AI label</th><th>Risk</th><th>Confidence</th><th>Unit price gap</th><th>Action</th></tr></thead><tbody id=\"alertBody\"></tbody></table></div>
-                    <div id=\"drawer\" class=\"drawer\"></div>
-                  </div>
-                  <div class=\"panel\">
-                    <h2>Daily Price Brief</h2>
-                    <textarea id=\"brief\"></textarea><br/>
-                    <button onclick=\"copyBrief()\">Copy brief</button>
+
+                <section class="panel">
+                  <h2>Priority alert dashboard</h2>
+                  <div class="tablewrap">
+                    <table>
+                      <thead><tr><th>Product</th><th>Competitor</th><th>AI label</th><th>Risk</th><th>Confidence</th><th>Margin</th><th>Recommended action</th></tr></thead>
+                      <tbody id="alertsBody"></tbody>
+                    </table>
                   </div>
                 </section>
-              </div>
+
+                <aside class="panel">
+                  <h2>Evidence drawer</h2>
+                  <div id="evidence" class="evidence">Run the scan and select an alert.</div>
+                  <h2 style="margin-top:18px">Daily Price Brief</h2>
+                  <div id="brief" class="brief">Run the scan to generate a copyable management brief.</div>
+                </aside>
+              </section>
             </main>
+
             <script>
-              const ALL_ALERTS = {json.dumps(alerts)};
-              let currentAlerts = [];
-              function markLoaded() {{
-                const d = document.getElementById('dataUpload').files[0];
-                const r = Array.from(document.getElementById('ragUpload').files).map(f=>f.name);
-                document.getElementById('uploaded').innerHTML = '<b>Loaded:</b><br>' + (d ? d.name : 'Built-in Excel data pack') + '<br>' + (r.length ? r.join('<br>') : 'Built-in RAG policy documents');
-              }}
-              function runScan() {{
-                const g = document.getElementById('groupFilter').value;
-                const l = document.getElementById('labelFilter').value;
-                currentAlerts = ALL_ALERTS.filter(a => (g==='All'||a.productGroup===g) && (l==='All'||a.label===l));
+              let products = [];
+              let competitors = [];
+              let alerts = [];
+              let selectedAlert = null;
+
+              const euro = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' });
+
+              function hashText(text) {
+                let h = 2166136261;
+                for (let i = 0; i < text.length; i++) {
+                  h ^= text.charCodeAt(i);
+                  h = Math.imul(h, 16777619);
+                }
+                return Math.abs(h >>> 0);
+              }
+
+              function round2(value) { return Math.round(value * 100) / 100; }
+
+              function unitBasis(product) {
+                if (product.product_group === 'Sun Care') return 100;
+                if (product.product_group === 'Baby Wipes') return 1;
+                if (product.unit_type === 'piece') return 1;
+                return product.unit_count >= 300 ? 100 : 75;
+              }
+
+              function unitPrice(totalPrice, product) {
+                return round2((Number(totalPrice) / Number(product.unit_count)) * unitBasis(product));
+              }
+
+              function promoFromHash(h) {
+                const r = h % 100;
+                if (r < 8) return { text: '1+1 free', factor: 0.5, kind: 'multi-buy' };
+                if (r < 16) return { text: '2nd half price', factor: 0.75, kind: 'multi-buy' };
+                if (r < 23) return { text: '25% off', factor: 0.75, kind: 'discount' };
+                if (r < 28) return { text: '3 for 2', factor: 0.667, kind: 'multi-buy' };
+                if (r < 31) return { text: 'Loyalty only offer', factor: 0.85, kind: 'loyalty' };
+                return { text: 'No visible promotion', factor: 1, kind: 'regular' };
+              }
+
+              function marginStatus(product, effectivePriceIncVat) {
+                const exVat = Number(effectivePriceIncVat) / 1.21;
+                const cost = Number(product.synthetic_cost_ex_vat);
+                const funding = Number(product.supplier_funding_per_unit || 0);
+                const margin = exVat <= 0 ? -1 : (exVat - cost + funding) / exVat;
+                const floorBroken = exVat < Number(product.price_floor_ex_vat);
+                const minBroken = margin < Number(product.min_margin_pct);
+                return { margin, floorBroken, minBroken, safe: !floorBroken && !minBroken };
+              }
+
+              function labelFor(product, competitor, matchConfidence, promo, competitorEffective, ownUnit, compUnit, margin) {
+                const lower = compUnit < ownUnit * 0.97;
+                if (matchConfidence < 80) return 'Manual Review';
+                if (competitor.name === 'Trekpleister' && lower) return 'Banner Alignment Alert';
+                if (competitor.type === 'Marketplace' && lower) return 'Manual Review';
+                if (product.private_label_flag && lower && competitor.name !== 'Trekpleister') return 'Private Label Value Gap';
+                if (lower && !margin.safe) return 'Margin Block';
+                if (lower && promo.kind !== 'regular') return 'Promo Attack';
+                if (lower) return 'Price Alert';
+                if (compUnit > ownUnit * 1.08 && margin.safe) return 'Opportunity';
+                return 'Opportunity';
+              }
+
+              function actionFor(label, product, competitor, promo) {
+                if (label === 'Price Alert') return 'Consider tactical response only if policy and human approval confirm it.';
+                if (label === 'Promo Attack') return 'Avoid permanent price change; consider coupon, bundle or funded campaign response.';
+                if (label === 'Margin Block') return 'Do not match; matching would break margin or price floor. Escalate for supplier funding or approval.';
+                if (label === 'Banner Alignment Alert') return 'Internal banner review only; do not treat Trekpleister as external competition.';
+                if (label === 'Private Label Value Gap') return 'Review own-label positioning and communication; do not exact-match with A-brands.';
+                if (label === 'Manual Review') return 'No automated advice. Validate seller, pack size, availability and evidence manually.';
+                return 'Keep price; use as proof point or increase visibility.';
+              }
+
+              function riskFor(label) {
+                if (['Margin Block', 'Manual Review'].includes(label)) return 'High';
+                if (['Price Alert', 'Promo Attack', 'Banner Alignment Alert', 'Private Label Value Gap'].includes(label)) return 'Medium';
+                return 'Low';
+              }
+
+              function runScan() {
+                alerts = [];
+                for (const product of products) {
+                  for (const competitor of competitors) {
+                    const h = hashText(product.sku + competitor.name);
+                    if (h % 100 > 78) continue;
+                    const promo = promoFromHash(h);
+                    const variation = 0.86 + ((h % 33) / 100);
+                    const competitorRegular = round2(Number(product.kruidvat_price_inc_vat) * variation);
+                    const competitorEffective = round2(competitorRegular * promo.factor);
+                    const ownUnit = unitPrice(Number(product.kruidvat_price_inc_vat), product);
+                    const compUnit = unitPrice(competitorEffective, product);
+                    let confidence = 96 - (h % 18);
+                    if (competitor.type === 'Marketplace') confidence -= 18;
+                    if (promo.kind === 'loyalty') confidence -= 8;
+                    if (product.private_label_flag && competitor.name !== 'Trekpleister') confidence -= 10;
+                    confidence = Math.max(58, Math.min(98, confidence));
+                    const margin = marginStatus(product, competitorEffective);
+                    const label = labelFor(product, competitor, confidence, promo, competitorEffective, ownUnit, compUnit, margin);
+                    const risk = riskFor(label);
+                    alerts.push({
+                      product, competitor, promo, competitorRegular, competitorEffective, ownUnit, compUnit, confidence, margin, label, risk,
+                      action: actionFor(label, product, competitor, promo),
+                      url: 'https://example.com/' + encodeURIComponent(competitor.name.toLowerCase().replaceAll(' ', '-')) + '/' + product.sku.toLowerCase(),
+                      timestamp: new Date().toISOString()
+                    });
+                  }
+                }
+                const order = { 'High': 0, 'Medium': 1, 'Low': 2 };
+                alerts.sort((a, b) => order[a.risk] - order[b.risk] || b.confidence - a.confidence);
+                selectedAlert = alerts[0] || null;
                 render();
-              }}
-              function render() {{
-                document.getElementById('mProducts').textContent = new Set(currentAlerts.map(a=>a.sku)).size;
-                document.getElementById('mMatches').textContent = currentAlerts.length;
-                document.getElementById('mRed').textContent = currentAlerts.filter(a=>a.risk==='Red').length;
-                document.getElementById('mManual').textContent = currentAlerts.filter(a=>a.label==='Manual Review').length;
-                const body = document.getElementById('alertBody');
-                body.innerHTML = currentAlerts.slice(0, 200).map((a,i)=>`<tr onclick=\"showEvidence(${{i}})\"><td><b>${{a.productName}}</b><br><span class=small>${{a.sku}}</span></td><td>${{a.productGroup}}</td><td>${{a.competitor}}</td><td><b>${{a.label}}</b></td><td><span class=\"pill ${{a.risk}}\">${{a.risk}}</span></td><td>${{a.confidence}}%</td><td>${{a.ownUnitPrice}} vs ${{a.competitorUnitPrice}} ${{a.unitLabel}}</td><td>${{a.recommendedAction}}</td></tr>`).join('');
-                buildBrief();
-              }}
-              function showEvidence(i) {{
-                const a = currentAlerts[i];
-                const d = document.getElementById('drawer');
-                d.className = 'drawer open';
-                d.innerHTML = `<h3>Evidence and reasoning</h3><p><b>${{a.productName}}</b></p><ul><li>Source: <a href=\"${{a.sourceUrl}}\" target=\"_blank\">${{a.sourceUrl}}</a></li><li>Timestamp: ${{a.timestamp}}</li><li>Promotion text: ${{a.promoText}}</li><li>Kruidvat price: EUR ${{a.ownPrice}} | competitor price: EUR ${{a.competitorPrice}}</li><li>Normalized: ${{a.ownUnitPrice}} vs ${{a.competitorUnitPrice}} ${{a.unitLabel}}</li><li>Margin after match: ${{a.marginAfterMatchPct}}% | minimum margin: ${{a.minMarginPct}}%</li><li>Price floor ex VAT: EUR ${{a.priceFloorExVat}}</li><li>AI label: <b>${{a.label}}</b> | confidence: ${{a.confidence}}%</li><li>Human check: ${{a.humanCheck}}</li></ul>`;
-              }}
-              function buildBrief() {{
-                const counts = {{}}; currentAlerts.forEach(a => counts[a.label] = (counts[a.label]||0)+1);
-                const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${{k}}: ${{v}}`).join(', ');
-                const red = currentAlerts.filter(a=>a.risk==='Red').slice(0,5).map(a=>`- ${{a.productName}}: ${{a.label}} against ${{a.competitor}}. ${{a.recommendedAction}}`).join('\n');
-                document.getElementById('brief').value = `Daily Promo & Price Brief\n\nScope: Sun Care, Baby Wipes and Oral Care. Competitors: Etos, Albert Heijn, Trekpleister, DA, De Online Drogist, Drogist.nl, Plein.nl, bol.com, Amazon.nl, Action, Die Grenze, Jumbo and PLUS.\n\nProducts/evidence items reviewed: ${{currentAlerts.length}}. Alert mix: ${{top}}.\n\nPriority actions:\n${{red || '- No red risk alerts in the current filter.'}}\n\nHuman-in-the-loop reminder: no automatic price changes. Confirm source evidence, stock, pack size and policy constraints before action.`;
-              }}
-              function copyBrief() {{ navigator.clipboard.writeText(document.getElementById('brief').value); }}
-              function exportCsv() {{
-                const cols = ['sku','productGroup','productName','competitor','label','risk','confidence','ownPrice','competitorPrice','promoText','marginAfterMatchPct','recommendedAction','sourceUrl'];
-                const rows = [cols.join(',')].concat(currentAlerts.map(a => cols.map(c => '"'+String(a[c]).replaceAll('"','""')+'"').join(',')));
-                const blob = new Blob([rows.join('\n')], {{type:'text/csv'}}); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href=url; link.download='kruidvat_price_alerts.csv'; link.click(); URL.revokeObjectURL(url);
-              }}
-              runScan();
+              }
+
+              function filteredAlerts() {
+                const group = document.getElementById('groupFilter').value;
+                const label = document.getElementById('labelFilter').value;
+                const comp = document.getElementById('competitorFilter').value;
+                return alerts.filter(a => (group === 'All' || a.product.product_group === group) && (label === 'All' || a.label === label) && (comp === 'All' || a.competitor.name === comp));
+              }
+
+              function renderKpis(list) {
+                const counts = {};
+                for (const a of alerts) counts[a.label] = (counts[a.label] || 0) + 1;
+                const high = alerts.filter(a => a.risk === 'High').length;
+                document.getElementById('kpis').innerHTML = [
+                  ['Products in scope', products.length, 'Sun Care 245, Baby Wipes 42, Oral Care 168'],
+                  ['Competitors in scope', competitors.length, 'All competitors included, no stretch scope'],
+                  ['Evidence matches', alerts.length, 'Generated competitor evidence rows'],
+                  ['High risk alerts', high, 'Margin Block or Manual Review']
+                ].map(k => '<div class="card"><div class="metric">' + k[1] + '</div><div><strong>' + k[0] + '</strong></div><div class="label">' + k[2] + '</div></div>').join('');
+              }
+
+              function renderTable() {
+                const list = filteredAlerts().slice(0, 250);
+                const body = document.getElementById('alertsBody');
+                body.innerHTML = list.map((a, index) => {
+                  const cls = a.risk === 'High' ? 'risk-high' : (a.risk === 'Medium' ? 'risk-med' : 'risk-low');
+                  return '<tr data-index="' + alerts.indexOf(a) + '"><td><strong>' + a.product.product_name + '</strong><br><span class="small">' + a.product.product_group + ' | ' + a.product.sku + '</span></td><td>' + a.competitor.name + '<br><span class="small">' + a.competitor.role + '</span></td><td><span class="pill ' + cls + '">' + a.label + '</span></td><td>' + a.risk + '</td><td>' + a.confidence + '%</td><td>' + Math.round(a.margin.margin * 1000) / 10 + '%</td><td>' + a.action + '</td></tr>';
+                }).join('');
+                for (const row of body.querySelectorAll('tr')) {
+                  row.addEventListener('click', () => { selectedAlert = alerts[Number(row.dataset.index)]; renderEvidence(); });
+                }
+              }
+
+              function renderEvidence() {
+                const box = document.getElementById('evidence');
+                if (!selectedAlert) { box.textContent = 'No alert selected.'; return; }
+                const a = selectedAlert;
+                box.textContent = 'AI label: ' + a.label + '\n' +
+                  'Product: ' + a.product.product_name + '\n' +
+                  'Product group: ' + a.product.product_group + '\n' +
+                  'Competitor: ' + a.competitor.name + '\n' +
+                  'Source URL: ' + a.url + '\n' +
+                  'Timestamp: ' + a.timestamp + '\n\n' +
+                  'Kruidvat price: ' + euro.format(Number(a.product.kruidvat_price_inc_vat)) + '\n' +
+                  'Competitor visible price: ' + euro.format(a.competitorRegular) + '\n' +
+                  'Promotion text: ' + a.promo.text + '\n' +
+                  'Effective competitor price: ' + euro.format(a.competitorEffective) + '\n' +
+                  'Kruidvat normalized unit price: ' + euro.format(a.ownUnit) + '\n' +
+                  'Competitor normalized unit price: ' + euro.format(a.compUnit) + '\n\n' +
+                  'Synthetic cost ex VAT: ' + euro.format(Number(a.product.synthetic_cost_ex_vat)) + '\n' +
+                  'Minimum margin: ' + Math.round(Number(a.product.min_margin_pct) * 1000) / 10 + '%\n' +
+                  'Margin after response: ' + Math.round(a.margin.margin * 1000) / 10 + '%\n' +
+                  'Price floor broken: ' + (a.margin.floorBroken ? 'yes' : 'no') + '\n' +
+                  'Minimum margin broken: ' + (a.margin.minBroken ? 'yes' : 'no') + '\n\n' +
+                  'Recommended action: ' + a.action + '\n' +
+                  'Human check: verify source, stock, pack size, promo conditions and approval path before action.';
+              }
+
+              function renderBrief() {
+                const counts = {};
+                for (const a of alerts) counts[a.label] = (counts[a.label] || 0) + 1;
+                const top = alerts.slice(0, 5).map(a => '- ' + a.label + ': ' + a.product.product_name + ' vs ' + a.competitor.name + ' — ' + a.action).join('\n');
+                document.getElementById('brief').textContent = 'Daily Promo & Price Brief\n\n' +
+                  'Scope: Sun Care, Baby Wipes and Oral Care. All 13 competitors included.\n' +
+                  'Products in scope: ' + products.length + '. Evidence matches generated: ' + alerts.length + '.\n\n' +
+                  'Alert counts: ' + Object.entries(counts).map(kv => kv[0] + ' ' + kv[1]).join(', ') + '.\n\n' +
+                  'Top actions:\n' + top + '\n\n' +
+                  'Control statement: no automatic price changes. All recommendations require human approval and source verification.';
+              }
+
+              function render() {
+                renderKpis(filteredAlerts());
+                renderTable();
+                renderEvidence();
+                renderBrief();
+              }
+
+              function exportCsv() {
+                const rows = [['sku','product_group','product_name','competitor','ai_label','risk','confidence','kruidvat_price','competitor_effective_price','recommended_action']];
+                for (const a of filteredAlerts()) rows.push([a.product.sku, a.product.product_group, a.product.product_name, a.competitor.name, a.label, a.risk, a.confidence, a.product.kruidvat_price_inc_vat, a.competitorEffective, a.action]);
+                const csv = rows.map(row => row.map(value => '"' + String(value).replaceAll('"', '""') + '"').join(',')).join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'kruidvat_ai_advisory_alerts.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+              }
+
+              async function init() {
+                products = await fetch('data/products.json').then(r => r.json());
+                competitors = await fetch('data/competitors.json').then(r => r.json());
+                const compSelect = document.getElementById('competitorFilter');
+                for (const c of competitors) {
+                  const option = document.createElement('option');
+                  option.textContent = c.name;
+                  compSelect.appendChild(option);
+                }
+                document.getElementById('runBtn').addEventListener('click', runScan);
+                document.getElementById('exportBtn').addEventListener('click', exportCsv);
+                for (const id of ['groupFilter','labelFilter','competitorFilter']) document.getElementById(id).addEventListener('change', render);
+                document.getElementById('ragUpload').addEventListener('change', event => {
+                  const files = Array.from(event.target.files).map(f => f.name + ' (' + Math.round(f.size / 1024) + ' KB)');
+                  document.getElementById('loadedDocs').textContent = files.length ? files.join('\n') : 'No documents uploaded yet.';
+                });
+                runScan();
+              }
+              init();
             </script>
-          </body></html>"""
-          (site / "index.html").write_text(html, encoding="utf-8")
-          (site / ".nojekyll").write_text("", encoding="utf-8")
+          </body>
+          </html>'''
+          (root / 'index.html').write_text(index_html, encoding='utf-8')
+          (root / '404.html').write_text(index_html, encoding='utf-8')
+          (root / '.nojekyll').write_text('', encoding='utf-8')
+          print('Generated site files:')
+          for path in sorted(root.rglob('*')):
+              print(path)
           PY
 
       - name: Upload GitHub Pages artifact
