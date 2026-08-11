@@ -1395,7 +1395,20 @@ Om een echte aanbieder aan te sluiten hebben wij deze gegevens nodig:
 
 ## Stagingomgeving en statische opname
 
-Een stagingomgeving is een gewone start van de applicatie met drie vlaggen:
+Eén commando zet een volledig werkende stagingomgeving op en start haar:
+
+```bash
+pnpm staging
+```
+
+`scripts/staging.sh` migreert de database, plaatst de voorbeelddata, leest de
+ingestelde bronnen echt in, draait de dagelijkse pipeline, controleert alle
+afbeeldingen, bouwt en start. Dit is de applicatie zelf: server-side rendering,
+database, jobs en adminpaneel werken zoals in productie, met voorbeelddata en
+zonder affiliatelinks, tracking of advertenties. Met `--no-seed` slaat hij het
+seeden over; met `PORT=3200` draait hij op een andere poort.
+
+Handmatig komt dat neer op:
 
 ```bash
 pnpm build
@@ -1435,13 +1448,21 @@ draaiende omgeving:
 pnpm staging:artifact --base http://localhost:3100
 ```
 
-Het opent elke route in Chromium, bewaart de gerenderde HTML, sluit de stylesheet
-en de fonts als data-URI in en haalt elke afbeelding via de eigen server op.
-Lukt een afbeelding niet, dan komt dezelfde lokale fallback in het bestand die de
-applicatie gebruikt. Scripts gaan eruit; kleine shims vervangen de interactie die
-daarmee wegvalt: routering, de bewaarknop, het mobiele menu en het zoekformulier.
-Breedtegebaseerde media queries worden container queries, zodat dezelfde opname
-op 1440, 834 en 390 pixels de echte responsive layout laat zien.
+Een crawler start op de homepage en volgt elke interne link, zodat geen enkele
+link in de opname doodloopt. Per pagina blijft de gerenderde HTML over; de
+stylesheet en de fonts gaan als data-URI mee en elke afbeelding wordt via de
+eigen server opgehaald en ingesloten. Valt een afbeelding in de browser terug op
+de fallback, dan probeert het script die pagina opnieuw, en een afbeelding die
+niet aan een ingesloten bestand te koppelen is laat de build falen: de opname mag
+geen placeholder tonen waar in de applicatie een foto staat.
+
+Er komt geen balk, menu of keuzelijst om de opname heen: je navigeert door de
+eigen header, categoriebalk, productkaarten en footer. Scripts gaan eruit; kleine
+shims vervangen de interactie die daarmee wegvalt: navigeren, de bewaarknop, het
+mobiele menu en het zoekformulier. Breedtegebaseerde media queries worden
+container queries op de houder van de pagina, dus de layout volgt de breedte van
+het browservenster: een smal venster of een telefoon geeft de echte mobiele
+weergave inclusief hamburgermenu.
 
 Dit is een opname, geen applicatie: server-side rendering, de database, de jobs,
 de API-routes en het adminpaneel zitten er niet in. Die zijn alleen te testen op

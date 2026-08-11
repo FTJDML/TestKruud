@@ -9,14 +9,22 @@ import { runImageHealthCheck, validatePendingImages } from '@/jobs/lib/images'
  * Zonder vlag: nieuwe en gewijzigde afbeeldingen valideren.
  * Met `--health`: ook de afbeeldingen van gepubliceerde producten opnieuw
  * controleren (de dagelijkse image-health).
+ * Met `--all`: die controle voor álle gepubliceerde producten, ook wanneer zij
+ * vandaag al gecontroleerd zijn. Nodig wanneer een bron zijn afbeeldingen heeft
+ * verplaatst: dan wil je niet een dag wachten voordat de site dat weet.
  */
 async function main(): Promise<void> {
   assertProductionEnv()
   const minDimension = serverEnv().IMAGE_MIN_DIMENSION
+  const all = process.argv.includes('--all')
   const pending = await validatePendingImages(prisma, { minDimension })
-  const health = process.argv.includes('--health')
-    ? await runImageHealthCheck(prisma, { minDimension })
-    : null
+  const health =
+    process.argv.includes('--health') || all
+      ? await runImageHealthCheck(prisma, {
+          minDimension,
+          ...(all ? { intervalHours: 0, limit: 1000 } : {}),
+        })
+      : null
   console.info(JSON.stringify({ pending, health }))
   await prisma.$disconnect()
 }

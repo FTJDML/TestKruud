@@ -31,6 +31,7 @@
     "job:images": "tsx src/jobs/images.ts",
     "job:worker": "tsx src/jobs/worker.ts",
     "db:seed:demo": "APP_ENV=development DEMO_CONTENT_ENABLED=true tsx prisma/seed.ts",
+    "staging": "./scripts/staging.sh",
     "staging:artifact": "node scripts/build-staging-artifact.mjs",
     "db:backup": "./scripts/backup-database.sh",
     "db:restore": "./scripts/restore-database.sh",

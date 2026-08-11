@@ -7,22 +7,30 @@
  * applicatie zelf kan er niet in staan. In plaats van de architectuur van de
  * applicatie aan te passen, legt dit script de **werkelijk gerenderde pagina's**
  * van de staging vast: dezelfde componenten, dezelfde Tailwind-build, dezelfde
- * fixturedata en dezelfde afbeeldingen.
+ * data en dezelfde afbeeldingen.
  *
- * Wat het doet:
+ * Het resultaat is de site zelf, zonder omhulsel eromheen. Er komt geen balk,
+ * geen menu en geen keuzelijst bij: je navigeert door de eigen header, de
+ * categoriebalk, de productkaarten en de footer, precies zoals in de applicatie.
  *
- * 1. Het leest de stylesheet van de draaiende server en zet de woff2-fonts als
- *    data-URI in de CSS, zodat er geen externe host meer nodig is.
- * 2. Breedtegebaseerde media queries worden container queries. Daardoor kan de
- *    capture in dezelfde pagina op 1440 en op 390 pixels worden bekeken met de
- *    echte responsive layout, zonder iframe.
- * 3. Het opent elke route in Chromium, ruimt scripts en verwijzingen op en
- *    bewaart de HTML van de body.
- * 4. Elke afbeelding wordt via de eigen server opgehaald en als data-URI
- *    opgenomen. Lukt dat niet, dan verwijst hij naar dezelfde lokale fallback
- *    die de applicatie gebruikt; een gebroken afbeeldingsicoon komt er niet in.
- * 5. Kleine shims vervangen de weggehaalde React-interactie: routering per hash,
- *    de bewaarknop, het mobiele menu en het zoekformulier.
+ * Hoe het werkt:
+ *
+ * 1. Een crawler start op de homepage en volgt elke interne link die hij
+ *    tegenkomt, tot alles is gezien. Zo blijft geen enkele link in de opname
+ *    dood; wat de site linkt, zit erin.
+ * 2. Per pagina worden scripts en verwijzingen verwijderd en blijft de
+ *    gerenderde HTML over.
+ * 3. De stylesheet en de woff2-fonts gaan als data-URI mee, en elke afbeelding
+ *    wordt via de eigen server opgehaald en ingesloten. Lukt een afbeelding
+ *    niet, dan komt dezelfde lokale fallback in het bestand die de applicatie
+ *    zelf gebruikt; een gebroken afbeeldingsicoon komt er nooit in.
+ * 4. Breedtegebaseerde media queries worden container queries op de houder van
+ *    de pagina. Die houder is honderd procent breed, dus de layout reageert op
+ *    de breedte van het browservenster: smal venster of telefoon geeft de echte
+ *    mobiele weergave, inclusief het hamburgermenu.
+ * 5. Kleine shims vervangen de interactie die met de scripts wegviel: navigeren
+ *    tussen de vastgelegde pagina's, de bewaarknop, het mobiele menu en het
+ *    zoekformulier.
  *
  * Gebruik: node scripts/build-staging-artifact.mjs --base http://localhost:3100
  */
@@ -40,94 +48,40 @@ function arg(name, fallback) {
 
 const base = arg('base', 'http://localhost:3100').replace(/\/$/, '')
 const out = resolve(arg('out', 'staging/homeandlivingdeals-staging.html'))
+const maxPages = Number.parseInt(arg('max', '250'), 10)
 
-/** Routes in de volgorde waarin zij in de navigatie van de capture komen. */
-const routes = [
-  { path: '/', label: 'Homepage', group: 'Hoofdpagina’s' },
-  { path: '/categorieen', label: 'Alle categorieën', group: 'Hoofdpagina’s' },
-  { path: '/nieuw', label: 'Nieuw ontdekt', group: 'Hoofdpagina’s' },
-  { path: '/gidsen', label: 'Vergelijkingen en gidsen', group: 'Hoofdpagina’s' },
-
-  { path: '/categorie/wonen-en-design', label: 'Wonen & Design', group: 'Categorieën' },
-  { path: '/categorie/keuken-en-apparaten', label: 'Keuken & Apparaten', group: 'Categorieën' },
-  { path: '/categorie/speelgoed-en-hobby', label: 'Speelgoed & Hobby', group: 'Categorieën' },
-  { path: '/categorie/smart-home-en-tech', label: 'Smart Home & Tech', group: 'Categorieën' },
-
-  {
-    path: '/product/nocta-bijzettafel-met-ingebouwde-koeling',
-    label: 'Productpagina met deal',
-    group: 'Producten',
-  },
-  {
-    path: '/product/two-seat-sofa',
-    label: 'Productpagina zonder deal (discovery)',
-    group: 'Producten',
-  },
-  {
-    path: '/product/sterrenwacht-bouwset-mechanisch-planetarium',
-    label: 'Product in een vergelijking',
-    group: 'Producten',
-  },
-  {
-    path: '/product/nimbus-wolkenlamp-met-bliksemeffect',
-    label: 'Product zonder van-prijs',
-    group: 'Producten',
-  },
-
-  {
-    path: '/gids/mechanische-bouwsets-vergelijken',
-    label: 'Technische vergelijking',
-    group: 'Redactie',
-  },
-  { path: '/gids/slim-in-huis-onder-100-euro', label: 'Budgetgids', group: 'Redactie' },
-  {
-    path: '/gids/designvondsten-voor-een-kleine-woonkamer',
-    label: 'Designcollectie',
-    group: 'Redactie',
-  },
-  {
-    path: '/gids/keukenvondsten-die-je-niet-verwacht',
-    label: 'Vondstencollectie',
-    group: 'Redactie',
-  },
-  { path: '/thema/wonen-design-en-meubels', label: 'Thema: wonen en design', group: 'Redactie' },
-  { path: '/thema/koffie-en-slimme-keuken', label: 'Thema: keuken', group: 'Redactie' },
-
-  { path: '/collectie/onnodig-maar-geweldig', label: 'Collectie: onnodig maar geweldig', group: 'Collecties' },
-  { path: '/collectie/slimmer-wonen-onder-100', label: 'Collectie: onder 100 euro', group: 'Collecties' },
-  { path: '/collectie/redactiefavorieten', label: 'Collectie: redactiefavorieten', group: 'Collecties' },
-
-  { path: '/zoeken', label: 'Zoeken', group: 'Zoeken en bewaard' },
-  { path: '/zoeken?q=lamp', label: 'Zoeken: lamp', group: 'Zoeken en bewaard', hidden: true },
-  { path: '/zoeken?q=projector', label: 'Zoeken: projector', group: 'Zoeken en bewaard', hidden: true },
-  { path: '/zoeken?q=cadeau', label: 'Zoeken: cadeau', group: 'Zoeken en bewaard', hidden: true },
-  { path: '/zoeken?q=bouwset', label: 'Zoeken: bouwset', group: 'Zoeken en bewaard', hidden: true },
-  {
-    path: '/zoeken?q=zzzzgeenresultaat',
-    label: 'Zoeken zonder resultaat',
-    group: 'Zoeken en bewaard',
-    hidden: true,
-  },
-  { path: '/bewaard', label: 'Bewaarde producten', group: 'Zoeken en bewaard', afterSaves: true },
-
-  { path: '/over', label: 'Over ons', group: 'Informatie' },
-  { path: '/hoe-wij-selecteren', label: 'Hoe wij selecteren', group: 'Informatie' },
-  { path: '/affiliateverklaring', label: 'Affiliateverklaring', group: 'Informatie' },
-  { path: '/privacy', label: 'Privacy', group: 'Informatie' },
-  { path: '/cookies', label: 'Cookies', group: 'Informatie' },
-  { path: '/contact', label: 'Contact', group: 'Informatie' },
-
-  { path: '/deze-pagina-bestaat-niet', label: '404-pagina', group: 'Overig', key: '/404' },
+/** Startpunten. De crawler vindt de rest zelf via de links op de pagina's. */
+const seeds = [
+  '/',
+  '/categorieen',
+  '/gidsen',
+  '/nieuw',
+  '/bewaard',
+  '/zoeken',
+  '/over',
+  '/hoe-wij-selecteren',
+  '/affiliateverklaring',
+  '/privacy',
+  '/cookies',
+  '/contact',
 ]
 
-/** Zoekopdrachten die als route zijn vastgelegd; de shim kiest hieruit. */
-const capturedQueries = ['lamp', 'projector', 'cadeau', 'bouwset']
+/** Zoekopdrachten die als pagina worden vastgelegd; de shim kiest hieruit. */
+const capturedQueries = ['lamp', 'projector', 'cadeau', 'bouwset', 'bureau', 'tafel', 'stoel']
 const noResultQuery = 'zzzzgeenresultaat'
 
-const imageIds = new Map()
-function imageId(url) {
-  if (!imageIds.has(url)) imageIds.set(url, `i${imageIds.size}`)
-  return imageIds.get(url)
+/** Route die niet bestaat; levert de echte 404-pagina van de applicatie. */
+const notFoundPath = '/deze-pagina-bestaat-niet'
+
+/** Paden die nooit worden gecrawld. */
+function skipPath(path) {
+  return (
+    path.startsWith('/api/') ||
+    path.startsWith('/admin') ||
+    path.startsWith('/_next') ||
+    path === '/robots.txt' ||
+    path === '/sitemap.xml'
+  )
 }
 
 async function fetchText(url) {
@@ -168,13 +122,14 @@ async function buildStylesheet(page) {
     if (dataUri) css = css.split(`url(${fontUrl})`).join(`url(${dataUri})`)
   }
 
-  // Breedtegebaseerde media queries worden container queries, zodat de capture
-  // in dezelfde pagina op telefoonbreedte te bekijken is met de echte layout.
-  css = css.replace(/@media\s*\(((?:min|max)-width:[^)]+)\)/g, '@container ($1)')
+  // Breedtegebaseerde media queries worden container queries op de houder van de
+  // pagina. Die houder is even breed als het venster, dus de site reageert nog
+  // steeds op de breedte van de browser.
   css = css.replace(
     /@media\s*\(((?:min|max)-width:[^)]+)\)\s*and\s*\(([^)]+)\)/g,
     '@container ($1) and ($2)',
   )
+  css = css.replace(/@media\s*\(((?:min|max)-width:[^)]+)\)/g, '@container ($1)')
   return css
 }
 
@@ -183,8 +138,7 @@ async function buildStylesheet(page) {
  *
  * Die klasse valt buiten de opname, en `--font-sans` verwijst ernaar. Een
  * variabele die naar een onbekende variabele verwijst is ongeldig, dus zonder
- * deze regel valt de hele site terug op het systeemfont. Daarom worden de
- * waarden uitgelezen en als `:root`-regel meegegeven.
+ * deze regel valt de hele site terug op het systeemfont.
  */
 const rootFontVariables = () => {
   const declarations = []
@@ -208,18 +162,13 @@ const rootFontVariables = () => {
   return [...new Set(declarations)].join(';')
 }
 
-/** Ruimt de pagina op en geeft de HTML van de body plus de afbeeldingen terug. */
+/**
+ * Ruimt de pagina op en geeft terug wat de opname nodig heeft: de HTML van de
+ * body, de afbeeldingen, de interne links en de aanbieders achter de uitgaande
+ * knoppen.
+ */
 const extract = () => {
-  const remove = [
-    'script',
-    'noscript',
-    'template',
-    'link',
-    'style',
-    'next-route-announcer',
-    '[data-nextjs-toast]',
-  ]
-  for (const selector of remove) {
+  for (const selector of ['script', 'noscript', 'template', 'link', 'style']) {
     document.body.querySelectorAll(selector).forEach((node) => node.remove())
   }
 
@@ -237,7 +186,20 @@ const extract = () => {
     img.setAttribute('decoding', 'sync')
   })
 
-  // Externe links krijgen geen doel in een statische capture.
+  const links = []
+  const merchants = []
+  document.body.querySelectorAll('a[href^="/"]').forEach((link) => {
+    const href = link.getAttribute('href') ?? ''
+    if (href.startsWith('/go/')) {
+      // De naam van de aanbieder staat in de knoptekst ("Bekijk deal bij X").
+      const match = /bij ([^,]+?)(,|$)/.exec(link.textContent ?? '')
+      if (match) merchants.push(match[1].trim())
+      return
+    }
+    links.push(href)
+  })
+
+  // Een nieuw tabblad bestaat niet in een opname.
   document.body.querySelectorAll('a[target="_blank"]').forEach((link) => {
     link.removeAttribute('target')
   })
@@ -245,14 +207,13 @@ const extract = () => {
   return {
     html: document.body.innerHTML,
     images,
+    links,
+    merchants,
     title: document.title,
-    // De fontvariabelen van next/font staan op <html> en de basiskleuren op
-    // <body>. Beide elementen vallen buiten de opname, dus gaan die klassen mee
-    // naar de houder in de capture.
     rootClass: `${document.documentElement.className} ${document.body.className}`
       .split(' ')
-      // min-h-dvh rekent met de hoogte van het venster; die bestaat in de
-      // opname niet op dezelfde manier en zou de houder laten meegroeien.
+      // min-h-dvh rekent met de hoogte van het venster; de opname laat de pagina
+      // gewoon meegroeien met zijn inhoud.
       .filter((name) => name.length > 0 && name !== 'min-h-dvh')
       .join(' '),
   }
@@ -277,15 +238,15 @@ async function main() {
   const stylesheet = await buildStylesheet(page)
   const fontVariables = await page.evaluate(rootFontVariables)
 
-  // Drie producten echt bewaren, zodat /bewaard geen lege pagina is. Dit gaat
-  // via de echte bewaarknop en de echte API, met een anonieme bezoeker-cookie.
+  // Drie producten echt bewaren, zodat "Bewaard" geen lege pagina is. Dit gaat
+  // via de echte bewaarknop en de echte API, met een anonieme bezoekerscookie.
   const hearts = page.locator('button[data-ready="true"][aria-pressed]')
   const heartCount = Math.min(await hearts.count(), 3)
   for (let index = 0; index < heartCount; index += 1) {
     await hearts.nth(index).click()
-    await page.waitForTimeout(400)
+    await page.waitForTimeout(350)
   }
-  console.info(`${heartCount} producten bewaard voor de capture van /bewaard.`)
+  console.info(`${heartCount} producten bewaard voor de pagina met bewaarde producten.`)
 
   // Het mobiele menu bestaat alleen wanneer het open staat; die HTML wordt
   // apart vastgelegd en door de shim opnieuw gebruikt.
@@ -302,82 +263,152 @@ async function main() {
   })
   await page.setViewportSize({ width: 1440, height: 1000 })
 
-  const captured = []
+  const pages = new Map()
   const imageUrls = new Set()
+  const merchantNames = new Set()
   let rootClass = ''
 
-  for (const route of routes) {
-    const url = `${base}${route.path}`
-    const response = await page.goto(url, { waitUntil: 'networkidle' })
-    const status = response?.status() ?? 0
-    const expected = route.key === '/404' ? 404 : 200
-    if (status !== expected) {
-      throw new Error(`${route.path} gaf status ${status}, verwacht ${expected}`)
+  const queue = [
+    ...seeds,
+    ...capturedQueries.map((query) => `/zoeken?q=${encodeURIComponent(query)}`),
+    `/zoeken?q=${noResultQuery}`,
+  ]
+  const queued = new Set(queue)
+
+  /**
+   * Wacht tot elke afbeelding klaar is en meldt of er een op de eigen fallback is
+   * teruggevallen. Dat gebeurt in de browser wanneer een afbeelding niet laadt,
+   * en tijdens een crawl van honderd pagina's kan dat een keer misgaan. De opname
+   * mag zo'n toevallige misser niet vastleggen, dus dan volgt een nieuwe poging.
+   */
+  const settleImages = () =>
+    page.evaluate(async () => {
+      const images = [...document.images]
+      await Promise.all(
+        images.map((image) =>
+          image.complete
+            ? null
+            : new Promise((done) => {
+                image.addEventListener('load', done, { once: true })
+                image.addEventListener('error', done, { once: true })
+                setTimeout(done, 5000)
+              }),
+        ),
+      )
+      return images.filter((image) => (image.currentSrc || image.src || '').includes('image-unavailable'))
+        .length
+    })
+
+  async function capture(path, key = path, expected = 200) {
+    let result = null
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await page.goto(`${base}${path}`, { waitUntil: 'networkidle' })
+      const status = response?.status() ?? 0
+      if (status !== expected) {
+        console.warn(`${path} gaf status ${status}, verwacht ${expected}; overgeslagen.`)
+        return null
+      }
+      const onFallback = await settleImages()
+      result = await page.evaluate(extract)
+      if (onFallback === 0) break
+      if (attempt < 2) {
+        console.warn(`${path}: ${onFallback} afbeelding(en) vielen terug op de fallback; opnieuw proberen.`)
+        await page.waitForTimeout(750)
+      } else {
+        console.warn(`${path}: ${onFallback} afbeelding(en) blijven op de fallback staan.`)
+      }
     }
-    const result = await page.evaluate(extract)
+    if (!result) return null
     rootClass = result.rootClass
     for (const image of result.images) imageUrls.add(image)
-    captured.push({
-      key: route.key ?? route.path,
-      label: route.label,
-      group: route.group,
-      hidden: route.hidden === true,
-      title: result.title,
-      html: result.html,
-    })
-    console.info(`vastgelegd: ${route.path} (${result.images.length} afbeeldingen)`)
+    for (const merchant of result.merchants) merchantNames.add(merchant)
+    pages.set(key, { key, title: result.title, html: result.html })
+    return result
   }
 
-  // De uitgaande knop leidt in staging naar een interne melding; die pagina
-  // hoort erbij, zodat de knoppen in de capture ergens uitkomen.
-  const noticeUrl = `${base}/staging/uitgaand?merchant=${encodeURIComponent('Huisvondst (demo)')}&product=nocta-bijzettafel-met-ingebouwde-koeling`
-  await page.goto(noticeUrl, { waitUntil: 'networkidle' })
-  const notice = await page.evaluate(extract)
-  for (const image of notice.images) imageUrls.add(image)
-  captured.push({
-    key: '/staging/uitgaand',
-    label: 'Melding bij een uitgaande knop',
-    group: 'Overig',
-    hidden: false,
-    title: notice.title,
-    html: notice.html,
-  })
+  while (queue.length > 0 && pages.size < maxPages) {
+    const path = queue.shift()
+    if (pages.has(path)) continue
+    const result = await capture(path)
+    if (!result) continue
+    for (const href of result.links) {
+      // Zoekresultaten hebben een querystring; de rest wordt op het pad gevolgd.
+      const clean = href.startsWith('/zoeken') ? href : href.split(/[?#]/)[0]
+      if (!clean.startsWith('/') || skipPath(clean)) continue
+      if (queued.has(clean) || pages.has(clean)) continue
+      queued.add(clean)
+      queue.push(clean)
+    }
+    if (pages.size % 20 === 0) console.info(`${pages.size} pagina's vastgelegd, ${queue.length} in de wachtrij.`)
+  }
+  console.info(`${pages.size} pagina's vastgelegd.`)
+
+  // De echte 404-pagina van de applicatie.
+  await capture(notFoundPath, '/404', 404)
+
+  // De interne melding achter elke uitgaande knop, met de juiste aanbieder.
+  for (const merchant of merchantNames) {
+    const path = `/staging/uitgaand?merchant=${encodeURIComponent(merchant)}`
+    await capture(path, `/staging/uitgaand?merchant=${merchant}`)
+  }
+  await capture('/staging/uitgaand', '/staging/uitgaand')
+  console.info(`${merchantNames.size} meldingen voor uitgaande knoppen vastgelegd.`)
 
   await browser.close()
 
-  // Afbeeldingen inlinen. De fallback van de applicatie zelf gaat er altijd in,
-  // zodat een mislukte afbeelding nooit een gebroken icoon oplevert.
+  // Afbeeldingen inlinen, met de fallback van de applicatie zelf achter de hand.
   const images = {}
+  const ids = new Map()
   let failed = 0
   for (const url of imageUrls) {
     const dataUri = await fetchDataUri(url)
-    if (dataUri) images[imageId(url)] = dataUri
+    const id = `i${ids.size}`
+    ids.set(url, id)
+    if (dataUri) images[id] = dataUri
     else failed += 1
   }
   const fallback = await fetchDataUri(`${base}/image-unavailable.svg`)
   if (!fallback) throw new Error('De lokale fallbackafbeelding is niet op te halen.')
   console.info(`${Object.keys(images).length} afbeeldingen ingesloten, ${failed} vervangen door de fallback.`)
 
-  // De HTML verwijst nu naar de volledige URL; die wordt een korte sleutel.
-  const idByUrl = Object.fromEntries([...imageIds.entries()])
-  const pages = captured.map((entry) => ({
+  /**
+   * De URL staat in een attribuut, dus in de HTML zijn de ampersands van
+   * `/_next/image?url=...&w=384` als `&amp;` geserialiseerd. Zonder deze
+   * omzetting matcht geen enkele geoptimaliseerde afbeelding en zou de opname
+   * overal de fallback tonen in plaats van de echte foto.
+   */
+  const decodeAttribute = (value) =>
+    value
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&')
+
+  let unmatched = 0
+  const withImageIds = [...pages.values()].map((entry) => ({
     ...entry,
-    html: entry.html.replace(/data-img="([^"]*)"/g, (match, url) => {
-      const id = idByUrl[url]
+    html: entry.html.replace(/data-img="([^"]*)"/g, (match, raw) => {
+      const id = ids.get(decodeAttribute(raw))
+      if (!id) unmatched += 1
       return id ? `data-img="${id}"` : 'data-img="onbekend"'
     }),
   }))
-  const menu = menuHtml.replace(/data-img="([^"]*)"/g, () => 'data-img="onbekend"')
+  if (unmatched > 0) {
+    throw new Error(
+      `${unmatched} afbeelding(en) in de opname zijn niet aan een ingesloten bestand te koppelen; de opname zou daar de fallback tonen.`,
+    )
+  }
 
   const payload = {
-    pages,
+    pages: withImageIds,
     images,
     fallback,
-    menu,
+    menu: menuHtml.replace(/data-img="([^"]*)"/g, () => 'data-img="onbekend"'),
     queries: capturedQueries,
     noResultQuery,
     rootClass,
-    capturedAt: new Date().toISOString(),
+    home: '/',
   }
 
   const html = shell(`${stylesheet}\n:root{${fontVariables}}`, payload)
@@ -386,119 +417,37 @@ async function main() {
   console.info(`${out} geschreven (${(Buffer.byteLength(html) / 1024 / 1024).toFixed(2)} MB).`)
 }
 
-/** De omhullende pagina: werkbalk, weergavebreedte en de shims. */
+/**
+ * De pagina zelf: alleen de site, met de shims eronder. Bewust zonder eigen
+ * navigatie, balk of keuzelijst: wat je ziet is de applicatie.
+ */
 function shell(stylesheet, payload) {
   // Elke "<" wordt een JSON-escape. Zo kan er in de data geen `</script>` of
   // `<!--` staan dat de parser van de pagina in de war brengt.
   const json = JSON.stringify(payload).replace(/</g, '\\u003C')
-
-  const groups = []
-  for (const page of payload.pages) {
-    if (page.hidden) continue
-    let group = groups.find((entry) => entry.name === page.group)
-    if (!group) {
-      group = { name: page.group, items: [] }
-      groups.push(group)
-    }
-    group.items.push(page)
-  }
-
-  const navigation = groups
-    .map(
-      (group) => `
-        <div class="sb-group">
-          <p class="sb-group-title">${escapeHtml(group.name)}</p>
-          <ul>
-            ${group.items
-              .map(
-                (item) =>
-                  `<li><a class="sb-link" href="#${escapeHtml(item.key)}" data-route="${escapeHtml(item.key)}">${escapeHtml(item.label)}</a></li>`,
-              )
-              .join('')}
-          </ul>
-        </div>`,
-    )
-    .join('')
 
   return `<title>HomeAndLivingDeals.nl — staging</title>
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
 <meta name="googlebot" content="noindex, nofollow" />
 <style>${stylesheet}</style>
 <style>
+  :root { color-scheme: light; }
+  body { margin: 0; background: var(--color-canvas, #f7f7f4); color: var(--color-ink, #161616); }
   /*
-    De hoogte staat bewust in pixels en niet in vh of dvh. Deze pagina kan in een
-    lijst met een automatische hoogte staan; dan is de hoogte van het venster
-    gelijk aan de hoogte van de inhoud, en zou een venstermaat zichzelf blijven
-    optellen. Met een vaste hoogte houden de navigatie, de sticky header van de
-    site en het terugspringen naar boven zich netjes.
+    De houder van de pagina is de container waarop de breedtequeries van de site
+    werken. Hij is honderd procent breed, dus de layout volgt het venster: smal
+    venster of telefoon geeft de echte mobiele weergave.
   */
-  :root { color-scheme: light; --sb-height: 860px; }
-  body { margin: 0; background: #f7f7f4; color: #161616; }
-  #sb-app { display: flex; height: var(--sb-height); overflow: hidden; }
-  #sb-side {
-    height: var(--sb-height); overflow-y: auto;
-    width: 250px; flex: 0 0 250px; background: #161616; color: #f7f7f4;
-    padding: 18px 16px 32px; font-size: 13px;
-    font-family: ui-sans-serif, system-ui, sans-serif;
-  }
-  #sb-side h1 { font-size: 14px; margin: 0 0 2px; color: #fff; letter-spacing: -0.01em; }
-  #sb-side p.sb-sub { margin: 0 0 14px; color: #b6b6b0; font-size: 11px; line-height: 1.45; }
-  .sb-note { border: 1px solid #3a3a38; border-radius: 10px; padding: 8px 10px; margin-bottom: 14px; color: #ffd9d4; font-size: 11px; line-height: 1.5; }
-  .sb-devices { display: flex; gap: 6px; margin-bottom: 16px; }
-  .sb-devices button {
-    flex: 1; border: 1px solid #3a3a38; background: transparent; color: #f7f7f4;
-    border-radius: 999px; padding: 6px 0; font-size: 11px; cursor: pointer;
-  }
-  .sb-devices button[aria-pressed="true"] { background: #ff5b4d; border-color: #ff5b4d; color: #fff; }
-  .sb-group { margin-bottom: 14px; }
-  .sb-group-title { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #8f8f8a; }
-  #sb-side ul { list-style: none; margin: 0; padding: 0; }
-  .sb-link { display: block; padding: 5px 8px; border-radius: 8px; color: #e6e6e1; text-decoration: none; line-height: 1.35; }
-  .sb-link:hover { background: #262625; }
-  .sb-link[aria-current="true"] { background: #ff5b4d; color: #fff; }
-  #sb-main {
-    flex: 1; min-width: 0; height: var(--sb-height); overflow-y: auto;
-    display: flex; justify-content: center; background: #ebebe6;
-    position: relative;
-  }
-  /*
-    Het mobiele menu van de site staat vast in het venster. In de opname mag het
-    alleen het weergavevenster bedekken en niet de stagingnavigatie ernaast.
-  */
-  #sb-main > .sb-overlay { position: absolute; inset: 0; }
-  #sb-frame {
-    container-type: inline-size;
-    width: 100%; max-width: 1440px; background: #f7f7f4; min-height: 100%;
-    align-self: flex-start;
-  }
-  #sb-app[data-device="mobile"] #sb-frame { max-width: 390px; box-shadow: 0 0 0 1px #d8d8d2; }
-  #sb-app[data-device="tablet"] #sb-frame { max-width: 834px; box-shadow: 0 0 0 1px #d8d8d2; }
+  #site { container-type: inline-size; width: 100%; }
 </style>
 
-<div id="sb-app" data-device="desktop">
-  <nav id="sb-side" aria-label="Stagingnavigatie">
-    <h1>HomeAndLivingDeals.nl</h1>
-    <p class="sb-sub">Statische opname van de stagingomgeving. Alle pagina's zijn door de applicatie zelf gerenderd.</p>
-    <p class="sb-note">Voorbeelddata. Geen echte prijzen, geen affiliatelinks, geen tracking en geen advertenties.</p>
-    <div class="sb-devices" role="group" aria-label="Weergavebreedte">
-      <button type="button" data-device="desktop" aria-pressed="true">Desktop</button>
-      <button type="button" data-device="tablet" aria-pressed="false">Tablet</button>
-      <button type="button" data-device="mobile" aria-pressed="false">Mobiel</button>
-    </div>
-    ${navigation}
-  </nav>
-  <main id="sb-main">
-    <div id="sb-frame" class="${escapeHtml(payload.rootClass)}"></div>
-  </main>
-</div>
+<div id="site" class="${escapeHtml(payload.rootClass)}"></div>
 
-<script id="sb-data" type="application/json">${json}</script>
+<script id="staging-data" type="application/json">${json}</script>
 <script>
   (function () {
-    const data = JSON.parse(document.getElementById('sb-data').textContent)
-    const frame = document.getElementById('sb-frame')
-    const main = document.getElementById('sb-main')
-    const app = document.getElementById('sb-app')
+    const data = JSON.parse(document.getElementById('staging-data').textContent)
+    const site = document.getElementById('site')
     const byKey = new Map(data.pages.map((page) => [page.key, page]))
     const saved = new Set()
 
@@ -513,7 +462,7 @@ function shell(stylesheet, payload) {
       })
     }
 
-    /** De bewaarknop in de opname: dezelfde statusattributen, lokaal bewaard. */
+    /** De bewaarknop: dezelfde statusattributen als in de applicatie. */
     function paintHeart(button) {
       const id = button.getAttribute('aria-label') || ''
       const on = saved.has(id)
@@ -534,7 +483,7 @@ function shell(stylesheet, payload) {
           const id = button.getAttribute('aria-label') || ''
           if (saved.has(id)) saved.delete(id)
           else saved.add(id)
-          root.querySelectorAll('button[aria-pressed][data-saved]').forEach(paintHeart)
+          document.querySelectorAll('button[aria-pressed][data-saved]').forEach(paintHeart)
         })
       })
     }
@@ -544,19 +493,14 @@ function shell(stylesheet, payload) {
       root.querySelectorAll('button[aria-controls="mobiel-menu"]').forEach((button) => {
         button.addEventListener('click', (event) => {
           event.preventDefault()
-          if (main.querySelector('#mobiel-menu')) return
-          main.scrollTop = 0
+          if (document.querySelector('#mobiel-menu')) return
           const holder = document.createElement('div')
           holder.innerHTML = data.menu
           const panel = holder.firstElementChild
           if (!panel) return
-          panel.classList.add('sb-overlay')
-          // Het menu hoort precies over het weergavevenster te liggen, ook
-          // wanneer dat op telefoonbreedte in het midden staat.
-          panel.style.left = frame.offsetLeft + 'px'
-          panel.style.width = frame.offsetWidth + 'px'
-          panel.style.right = 'auto'
-          main.appendChild(panel)
+          // In de houder van de pagina, zodat het paneel de eigen regels van de
+          // site volgt: op een breed venster hoort het menu er niet te staan.
+          site.appendChild(panel)
           hydrateImages(panel)
           wireLinks(panel)
           const close = () => panel.remove()
@@ -568,7 +512,7 @@ function shell(stylesheet, payload) {
       })
     }
 
-    /** Zoeken: de opgenomen zoekopdrachten, met de getypte tekst in beeld. */
+    /** Zoeken: de vastgelegde zoekopdrachten, met de getypte tekst in beeld. */
     function wireForms(root) {
       root.querySelectorAll('form').forEach((form) => {
         form.addEventListener('submit', (event) => {
@@ -581,7 +525,7 @@ function shell(stylesheet, payload) {
           }
           const match = data.queries.find((query) => query.toLowerCase() === value.toLowerCase())
           if (match) {
-            go('/zoeken?q=' + match)
+            go('/zoeken?q=' + encodeURIComponent(match))
             return
           }
           go('/zoeken?q=' + data.noResultQuery, value)
@@ -589,19 +533,26 @@ function shell(stylesheet, payload) {
       })
     }
 
-    /** Interne links worden hashlinks; onbekende routes gaan naar de 404. */
+    /** De aanbieder achter een uitgaande knop staat in de knoptekst. */
+    function noticeFor(link) {
+      const match = /bij ([^,]+?)(,|$)/.exec(link.textContent || '')
+      const merchant = match ? match[1].trim() : ''
+      const key = '/staging/uitgaand?merchant=' + merchant
+      return byKey.has(key) ? key : '/staging/uitgaand'
+    }
+
+    /** Interne links navigeren binnen de opname; onbekend gaat naar de 404. */
     function wireLinks(root) {
       root.querySelectorAll('a[href]').forEach((link) => {
         const href = link.getAttribute('href') || ''
         if (!href.startsWith('/')) {
-          if (href.startsWith('#')) return
-          link.addEventListener('click', (event) => event.preventDefault())
+          if (!href.startsWith('#')) link.addEventListener('click', (event) => event.preventDefault())
           return
         }
         link.addEventListener('click', (event) => {
           event.preventDefault()
-          // De uitgaande knop komt in staging uit op de interne melding.
-          const target = href.startsWith('/go/') ? '/staging/uitgaand' : href
+          // De knop naar de winkel komt in staging uit op de interne melding.
+          const target = href.startsWith('/go/') ? noticeFor(link) : href
           go(byKey.has(target) ? target : '/404')
         })
       })
@@ -625,38 +576,20 @@ function shell(stylesheet, payload) {
     function go(key, typed) {
       const page = byKey.get(key) || byKey.get('/404')
       if (!page) return
-      frame.innerHTML = page.html
-      hydrateImages(frame)
-      wireLinks(frame)
-      wireHearts(frame)
-      wireMenu(frame)
-      wireForms(frame)
-      if (typed) replaceQuery(frame, typed)
-      document.querySelectorAll('.sb-link').forEach((link) => {
-        link.setAttribute('aria-current', link.getAttribute('data-route') === page.key ? 'true' : 'false')
-      })
-      if (location.hash !== '#' + page.key) {
-        history.replaceState(null, '', '#' + page.key)
-      }
-      main.scrollTop = 0
+      const open = document.querySelector('#mobiel-menu')
+      if (open && open.parentElement) open.parentElement.remove()
+      site.innerHTML = page.html
+      hydrateImages(site)
+      wireLinks(site)
+      wireHearts(site)
+      wireMenu(site)
+      wireForms(site)
+      if (typed) replaceQuery(site, typed)
+      if (location.hash !== '#' + page.key) history.replaceState(null, '', '#' + page.key)
+      // Deze pagina kan in een frame staan; scrollIntoView werkt daar ook, want
+      // het scrollt de bovenliggende pagina mee. window.scrollTo doet dat niet.
+      site.scrollIntoView({ block: 'start' })
     }
-
-    document.querySelectorAll('.sb-link').forEach((link) => {
-      link.addEventListener('click', (event) => {
-        event.preventDefault()
-        go(link.getAttribute('data-route'))
-      })
-    })
-
-    document.querySelectorAll('.sb-devices button').forEach((button) => {
-      button.addEventListener('click', () => {
-        const device = button.getAttribute('data-device')
-        app.setAttribute('data-device', device)
-        document.querySelectorAll('.sb-devices button').forEach((item) => {
-          item.setAttribute('aria-pressed', item === button ? 'true' : 'false')
-        })
-      })
-    })
 
     window.addEventListener('hashchange', () => {
       const key = decodeURIComponent(location.hash.replace(/^#/, ''))
@@ -664,7 +597,7 @@ function shell(stylesheet, payload) {
     })
 
     const initial = decodeURIComponent(location.hash.replace(/^#/, ''))
-    go(byKey.has(initial) ? initial : '/')
+    go(byKey.has(initial) ? initial : data.home)
   })()
 </script>
 `
