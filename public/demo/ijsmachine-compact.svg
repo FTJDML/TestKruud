@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800" role="img">
+  <rect width="800" height="800" fill="#F0EFE9"/>
+  <rect x="228" y="224" width="386" height="386" rx="55" fill="#DDE3DA"/>
+  <rect x="378" y="259" width="182" height="137" rx="69" fill="#9FB6A4" opacity="0.9"/>
+  <rect x="530" y="252" width="314" height="146" rx="73" fill="#F0EFE9" opacity="0.75"/>
+  <circle cx="250" cy="495" r="42" fill="#FF5B4D"/>
+  <rect x="0" y="640" width="800" height="4" fill="#9FB6A4" opacity="0.35"/>
+  <text x="772" y="774" text-anchor="end" font-family="Inter, Helvetica, Arial, sans-serif" font-size="22" fill="#9FB6A4" opacity="0.75">demo</text>
+</svg>

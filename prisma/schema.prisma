@@ -1,0 +1,256 @@
+// HomeAndLivingDeals.nl — datamodel
+// De verbindingsstring staat in prisma.config.ts (Prisma 7) en wordt in de
+// applicatie via de pg-driveradapter doorgegeven aan PrismaClient.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SourceType {
+  FIXTURE
+  CSV
+  JSON
+  XML
+  HTML
+  API
+}
+
+enum ProductStatus {
+  CANDIDATE
+  DRAFT
+  NEEDS_REVIEW
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum ReferencePriceType {
+  MERCHANT_WAS_PRICE
+  RECOMMENDED_RETAIL_PRICE
+  OWN_PREVIOUS_PRICE
+  OWN_30_DAY_LOW
+  OWN_90_DAY_MEDIAN
+}
+
+enum EditionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum EditionSection {
+  HERO
+  TODAY
+  EDITORS_PICK
+  UNDER_100
+  UNNECESSARY_BUT_GREAT
+}
+
+enum ScrapeRunStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+model Merchant {
+  id              String     @id @default(cuid())
+  name            String
+  slug            String     @unique
+  domain          String
+  sourceType      SourceType @default(FIXTURE)
+  enabled         Boolean    @default(true)
+  scrapingAllowed Boolean    @default(false)
+  feedUrl         String?
+  trustScore      Int        @default(50)
+  configuration   Json       @default("{}")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  offers         Offer[]
+  scrapeRuns     ScrapeRun[]
+  outboundClicks OutboundClick[]
+
+  @@index([enabled])
+}
+
+model Product {
+  id                     String        @id @default(cuid())
+  slug                   String        @unique
+  externalId             String?
+  ean                    String?       @unique
+  brand                  String?
+  model                  String?
+  title                  String
+  normalizedTitle        String
+  primaryCategory        String
+  shortSourceDescription String?
+  specifications         Json          @default("{}")
+  imageUrl               String
+  imageAlt               String
+  status                 ProductStatus @default(CANDIDATE)
+  isDemo                 Boolean       @default(false)
+  uniquenessScore        Int           @default(0)
+  usefulnessScore        Int           @default(0)
+  storyScore             Int           @default(0)
+  giftabilityScore       Int           @default(0)
+  visualQualityScore     Int           @default(60)
+  collections            String[]      @default([])
+  publishedAt            DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  offers         Offer[]
+  editorial      EditorialContent?
+  editionItems   DailyEditionItem[]
+  saves          AnonymousSave[]
+  outboundClicks OutboundClick[]
+
+  @@index([status, primaryCategory])
+  @@index([normalizedTitle])
+  @@index([createdAt])
+}
+
+model Offer {
+  id                 String              @id @default(cuid())
+  productId          String
+  merchantId         String
+  externalOfferId    String?
+  currentPrice       Decimal             @db.Decimal(10, 2)
+  referencePrice     Decimal?            @db.Decimal(10, 2)
+  referencePriceType ReferencePriceType?
+  currency           String              @default("EUR")
+  discountPercentage Int?
+  inStock            Boolean             @default(true)
+  destinationUrl     String
+  affiliateUrl       String?
+  promotionEndsAt    DateTime?
+  checkedAt          DateTime            @default(now())
+  staleAt            DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  merchant       Merchant        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  snapshots      PriceSnapshot[]
+  editionItems   DailyEditionItem[]
+  outboundClicks OutboundClick[]
+
+  @@unique([merchantId, externalOfferId])
+  @@index([productId])
+  @@index([checkedAt])
+}
+
+model PriceSnapshot {
+  id             String   @id @default(cuid())
+  offerId        String
+  price          Decimal  @db.Decimal(10, 2)
+  referencePrice Decimal? @db.Decimal(10, 2)
+  inStock        Boolean  @default(true)
+  capturedAt     DateTime @default(now())
+
+  offer Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@index([offerId, capturedAt])
+}
+
+model EditorialContent {
+  id              String   @id @default(cuid())
+  productId       String   @unique
+  headline        String
+  teaser          String
+  longDescription String
+  whyItStandsOut  String
+  bestFor         Json     @default("[]")
+  caveat          String
+  seoTitle        String
+  metaDescription String
+  tags            Json     @default("[]")
+  promptVersion   String
+  aiProvider      String
+  sourceFactsHash String?
+  generatedAt     DateTime @default(now())
+  reviewedAt      DateTime?
+  updatedAt       DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model DailyEdition {
+  id          String        @id @default(cuid())
+  editionDate DateTime      @unique @db.Date
+  status      EditionStatus @default(DRAFT)
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+
+  items DailyEditionItem[]
+
+  @@index([status, editionDate])
+}
+
+model DailyEditionItem {
+  id             String         @id @default(cuid())
+  dailyEditionId String
+  productId      String
+  offerId        String
+  position       Int
+  section        EditionSection
+  score          Float          @default(0)
+  createdAt      DateTime       @default(now())
+
+  edition DailyEdition @relation(fields: [dailyEditionId], references: [id], onDelete: Cascade)
+  product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  offer   Offer        @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyEditionId, productId])
+  @@index([dailyEditionId, section, position])
+}
+
+model AnonymousSave {
+  id                 String   @id @default(cuid())
+  productId          String
+  anonymousVisitorId String
+  createdAt          DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, anonymousVisitorId])
+  @@index([anonymousVisitorId])
+}
+
+model OutboundClick {
+  id                 String   @id @default(cuid())
+  productId          String
+  offerId            String
+  merchantId         String
+  anonymousVisitorId String?
+  source             String   @default("unknown")
+  createdAt          DateTime @default(now())
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  offer    Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([productId, createdAt])
+}
+
+model ScrapeRun {
+  id              String          @id @default(cuid())
+  merchantId      String
+  status          ScrapeRunStatus @default(RUNNING)
+  startedAt       DateTime        @default(now())
+  finishedAt      DateTime?
+  productsFound   Int             @default(0)
+  productsCreated Int             @default(0)
+  offersUpdated   Int             @default(0)
+  errorMessage    String?
+  createdAt       DateTime        @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, startedAt])
+}

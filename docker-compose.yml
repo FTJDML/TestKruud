@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# Lokale stack: PostgreSQL, migraties met demo-seed en de Next.js-app.
+#   docker compose up --build
+# Daarna staat de site op http://localhost:3000
+# ---------------------------------------------------------------------------
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hald}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hald}
+      POSTGRES_DB: ${POSTGRES_DB:-homeandlivingdeals}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-hald} -d ${POSTGRES_DB:-homeandlivingdeals}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # Eenmalige stap: migraties uitvoeren en (optioneel) demo-inhoud seeden.
+  # Zet SEED_DEMO_CONTENT=false zodra er echte merchantdata is.
+  migrate:
+    build:
+      context: .
+      target: builder
+    command: sh -c "pnpm prisma migrate deploy && pnpm db:seed"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hald}:${POSTGRES_PASSWORD:-hald}@db:5432/${POSTGRES_DB:-homeandlivingdeals}?schema=public
+      CONTENT_PROVIDER: ${CONTENT_PROVIDER:-template}
+      SEED_DEMO_CONTENT: ${SEED_DEMO_CONTENT:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hald}:${POSTGRES_PASSWORD:-hald}@db:5432/${POSTGRES_DB:-homeandlivingdeals}?schema=public
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      NEXT_PUBLIC_ADS_ENABLED: ${NEXT_PUBLIC_ADS_ENABLED:-false}
+      NEXT_PUBLIC_AD_PROVIDER: ${NEXT_PUBLIC_AD_PROVIDER:-none}
+      CONTENT_PROVIDER: ${CONTENT_PROVIDER:-template}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5}
+      CRON_SECRET: ${CRON_SECRET:-verander-dit-in-productie}
+      SCRAPER_USER_AGENT: ${SCRAPER_USER_AGENT:-HomeAndLivingDealsBot/0.1 (+https://homeandlivingdeals.nl/over)}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin-local-dev}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-verander-dit-in-een-lange-willekeurige-string}
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
