@@ -1,6 +1,6 @@
 import { formatPriceValue } from '@/lib/pricing/money'
 import { absoluteImageUrl, absoluteUrl, siteName, siteTagline } from '@/lib/seo/metadata'
-import type { ProductCardView, ProductDetailView } from '@/types'
+import type { EditorialPageView, ProductCardView, ProductDetailView } from '@/types'
 
 /**
  * Structured data. Bewust zonder Review, AggregateRating of sterren: wij hebben
@@ -106,6 +106,54 @@ export function itemListJsonLd(products: readonly ProductCardView[], name: strin
       position: index + 1,
       url: absoluteUrl(`/product/${product.slug}`),
       name: product.headline,
+    })),
+  }
+}
+
+/**
+ * Redactionele pagina als ItemList. Alleen wat de bezoeker ook echt ziet: de
+ * geselecteerde producten met hun zichtbare prijs. Er komt géén Review,
+ * AggregateRating, sterren of testresultaat in — die hebben wij niet.
+ *
+ * Een pagina die de indexeringspoort niet haalt krijgt geen structured data:
+ * markup voor een pagina die niet in de index hoort, voegt niets toe.
+ */
+export function editorialPageJsonLd(page: EditorialPageView): JsonLdObject | null {
+  if (!page.indexable) return null
+  const real = page.selected.filter((entry) => !entry.product.isDemo)
+  if (real.length === 0) return null
+
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: page.title,
+    description: page.metaDescription,
+    url: absoluteUrl(`/gids/${page.slug}`),
+    numberOfItems: real.length,
+    itemListElement: real.map((entry, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      url: absoluteUrl(`/product/${entry.product.slug}`),
+      name: entry.product.title,
+      ...(entry.product.pricing
+        ? {
+            // Exact het bedrag dat op de pagina staat.
+            item: {
+              '@type': 'Product',
+              name: entry.product.title,
+              image: [absoluteImageUrl(entry.product.imageUrl)],
+              offers: {
+                '@type': 'Offer',
+                priceCurrency: entry.product.pricing.currency,
+                price: formatPriceValue(entry.product.pricing.currentPriceCents),
+                availability: entry.product.pricing.isActive
+                  ? 'https://schema.org/InStock'
+                  : 'https://schema.org/OutOfStock',
+                url: absoluteUrl(`/product/${entry.product.slug}`),
+              },
+            },
+          }
+        : {}),
     })),
   }
 }

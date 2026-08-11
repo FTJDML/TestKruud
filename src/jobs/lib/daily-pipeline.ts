@@ -9,6 +9,7 @@ import { runImageHealthCheck, validatePendingImages, type ImageJobSummary } from
 import { promotePublishableProducts, type PromotionSummary } from '@/jobs/lib/publish-products'
 import { ingestMerchant, markStaleOffers, type IngestSummary } from '@/jobs/lib/ingest'
 import { publishDailyEdition, type EditionSummary } from '@/jobs/lib/publish-edition'
+import { publishScheduledPages, refreshAllIndexability } from '@/lib/editorial/service'
 
 export type DailyPipelineResult = {
   startedAt: string
@@ -20,6 +21,10 @@ export type DailyPipelineResult = {
   analysis: AnalysisSummary
   content: ContentSummary
   promotion: PromotionSummary
+  /** Geplande redactionele pagina's die vandaag live gaan. */
+  editorialPages: { published: number; blocked: number }
+  /** Herberekende indexeerbaarheid van alle redactionele pagina's. */
+  indexability: { checked: number; indexable: number; blocked: number }
   edition: EditionSummary
   errors: string[]
 }
@@ -123,6 +128,26 @@ export async function runDailyPipeline(
     logger.error('Promoveren van producten mislukt', { reason })
   }
 
+  // Geplande redactionele pagina's publiceren, en daarna de indexeringspoort
+  // opnieuw langs alle pagina's: prijzen en producten zijn net gewijzigd.
+  let editorialPages = { published: 0, blocked: 0 }
+  try {
+    editorialPages = await publishScheduledPages(prisma, startedAt)
+  } catch (error) {
+    const reason = errorMessage(error)
+    errors.push(`redactionele publicatie: ${reason}`)
+    logger.error('Publiceren van geplande pagina\'s mislukt', { reason })
+  }
+
+  let indexability = { checked: 0, indexable: 0, blocked: 0 }
+  try {
+    indexability = await refreshAllIndexability(prisma, startedAt)
+  } catch (error) {
+    const reason = errorMessage(error)
+    errors.push(`indexeerbaarheid: ${reason}`)
+    logger.error('Herberekenen van indexeerbaarheid mislukt', { reason })
+  }
+
   let edition: EditionSummary = {
     editionDate: '',
     published: false,
@@ -149,6 +174,8 @@ export async function runDailyPipeline(
     analysis,
     content,
     promotion,
+    editorialPages,
+    indexability,
     edition,
     errors,
   }
@@ -162,6 +189,8 @@ export async function runDailyPipeline(
     imagesInvalid: result.images.invalid,
     analysed: result.analysis.analysed,
     promoted: result.promotion.promoted,
+    editorialPublished: result.editorialPages.published,
+    indexablePages: result.indexability.indexable,
     staleOffers,
     errors: errors.length,
   })

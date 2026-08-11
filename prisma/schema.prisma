@@ -123,6 +123,103 @@ enum ScrapeRunStatus {
   FAILED
 }
 
+/**
+ * Redactionele archetypen. Elk type heeft eigen eisen (zie
+ * src/lib/editorial/archetypes.ts), een eigen editor en een eigen template.
+ */
+enum EditorialPageType {
+  COMPARISON
+  BEST_OF
+  BUDGET_GUIDE
+  USE_CASE_GUIDE
+  GIFT_GUIDE
+  DESIGN_COLLECTION
+  DEAL_COLLECTION
+  PROBLEM_SOLUTION
+  DISCOVERY_COLLECTION
+}
+
+/** Wat de bezoeker met de zoekopdracht wil. Bepaalt de opbouw van de pagina. */
+enum SearchIntent {
+  INFORMATIONAL
+  COMMERCIAL_INVESTIGATION
+  TRANSACTIONAL
+  INSPIRATIONAL
+}
+
+/**
+ * Publicatiestatus van redactionele objecten. `SCHEDULED` wacht op
+ * `scheduledPublishAt`; AI-drafts komen altijd op `NEEDS_REVIEW`.
+ */
+enum PublicationStatus {
+  DRAFT
+  NEEDS_REVIEW
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+/** Rol van een product op een redactionele pagina. */
+enum EditorialProductRole {
+  SELECTED
+  ALTERNATIVE
+}
+
+enum CriterionValueType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  ENUM
+}
+
+/**
+ * Een criteriumwaarde is pas bruikbaar wanneer zij is gecontroleerd.
+ * `NOT_PROVIDED` betekent: de bron geeft dit niet — de pagina toont dan
+ * "Niet opgegeven" en er wordt niets geraden.
+ */
+enum VerificationStatus {
+  UNVERIFIED
+  VERIFIED
+  NOT_PROVIDED
+}
+
+enum EvidenceSourceType {
+  MANUFACTURER_DOCUMENTATION
+  MERCHANT_FEED
+  AFFILIATE_API
+  MANUAL_PRICE_CHECK
+  OWN_PRICE_HISTORY
+  OWN_HANDS_ON_TEST
+  LICENSED_SOURCE
+  OTHER_VERIFIED_SOURCE
+}
+
+enum InternalLinkTargetType {
+  CLUSTER
+  CATEGORY
+  COLLECTION
+  EDITORIAL_PAGE
+  PRODUCT
+}
+
+enum InternalLinkStatus {
+  SUGGESTED
+  APPROVED
+  REJECTED
+}
+
+enum ContentPlanEntryType {
+  PRODUCT
+  EDITORIAL_PAGE
+}
+
+enum ContentPlanStatus {
+  PLANNED
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
 model Merchant {
   id               String           @id @default(cuid())
   name             String
@@ -205,6 +302,10 @@ model Product {
   outboundClicks  OutboundClick[]
   matchCandidates ProductMatchCandidate[] @relation("matchSource")
   matchedBy       ProductMatchCandidate[] @relation("matchTarget")
+  editorialPages  EditorialPageProduct[]
+  featuredOnPages EditorialPage[]         @relation("featuredOnPages")
+  criterionValues ProductCriterionValue[]
+  planEntries     ContentPlanEntry[]
 
   @@index([status, imageStatus])
   @@index([status, primaryCategory])
@@ -433,4 +534,286 @@ model ScrapeRun {
   merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
 
   @@index([merchantId, startedAt])
+}
+
+/**
+ * Contentcluster: een thematische bundel van categorieën, producten en
+ * redactionele pagina's. Een cluster komt pas prominent in de navigatie wanneer
+ * het genoeg gepubliceerde producten én genoeg redactionele pagina's heeft; de
+ * grenzen staan per cluster in de database (met defaults uit de environment).
+ */
+model ContentCluster {
+  id                  String            @id @default(cuid())
+  slug                String            @unique
+  title               String
+  /** Redactionele introductie op de clusterpagina. */
+  introduction        String
+  heroImage           String?
+  /** Handmatige zichtbaarheid; de drempels hieronder gelden daarnaast. */
+  visible             Boolean           @default(false)
+  minProducts         Int               @default(15)
+  minEditorialPages   Int               @default(2)
+  /** Primaire onderwerpen; bepalen de redactionele richting, geen automatiek. */
+  primaryTopics       String[]          @default([])
+  /** Slugs van de onderliggende categorieën. */
+  categorySlugs       String[]          @default([])
+  seoTitle            String
+  metaDescription     String
+  status              PublicationStatus @default(DRAFT)
+  displayOrder        Int               @default(0)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  editorialPages EditorialPage[]
+  planEntries    ContentPlanEntry[]
+
+  @@index([status, visible])
+}
+
+/**
+ * Redactionele pagina (vergelijking, koopgids, collectie). Zij is nooit
+ * automatisch indexeerbaar: de IndexabilityQualityGate in
+ * src/lib/editorial/quality-gate.ts beslist, en `indexable` is het opgeslagen
+ * resultaat van die controle.
+ */
+model EditorialPage {
+  id                        String            @id @default(cuid())
+  type                      EditorialPageType
+  title                     String
+  slug                      String            @unique
+  clusterId                 String?
+  /** Eén echte gebruikersvraag; geen zoekwoordenlijst. */
+  primaryQuery              String
+  searchIntent              SearchIntent      @default(COMMERCIAL_INVESTIGATION)
+  audience                  String?
+  useCase                   String?
+  /** Budgetgrenzen in centen; verplicht bij BUDGET_GUIDE en GIFT_GUIDE. */
+  budgetMinCents            Int?
+  budgetMaxCents            Int?
+  introduction              String
+  /** Hoe de selectie is gemaakt; verplicht waar het archetype dat eist. */
+  methodology               String?
+  selectionCriteria         String?
+  conclusion                String?
+  frequentlyAskedQuestions  Json              @default("[]")
+  featuredProductId         String?
+  /** Waarom dit product uitgelicht is, gekoppeld aan controleerbare criteria. */
+  featuredReason            String?
+  /** Verplicht aandachtspunt bij het uitgelichte product. */
+  featuredCaveat            String?
+  /** Wanneer een alternatief geschikter is. */
+  featuredAlternativeNote   String?
+  /** Label zoals "Beste voor kleine keukens"; zie src/lib/editorial/featured.ts. */
+  featuredLabel             String?
+  status                    PublicationStatus @default(DRAFT)
+  scheduledPublishAt        DateTime?
+  publishedAt               DateTime?
+  lastFactCheckedAt         DateTime?
+  reviewedAt                DateTime?
+  reviewerNotes             String?
+  /** Resultaat van de quality gate; nooit met de hand op true gezet. */
+  indexable                 Boolean           @default(false)
+  indexabilityReasons       Json              @default("[]")
+  seoTitle                  String
+  metaDescription           String
+  canonicalUrl              String?
+  heroImage                 String?
+  /** Hash van de feiten waarop de tekst rust; wijzigt die, dan is review nodig. */
+  contentFactsHash          String?
+  generationProvider        String?
+  generationModel           String?
+  generationWarnings        Json              @default("[]")
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
+
+  cluster         ContentCluster?         @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+  featuredProduct Product?                @relation("featuredOnPages", fields: [featuredProductId], references: [id], onDelete: SetNull)
+  products        EditorialPageProduct[]
+  criteria        EditorialPageCriterion[]
+  criterionValues ProductCriterionValue[]
+  sources         EditorialPageSource[]
+  planEntries     ContentPlanEntry[]
+
+  @@index([status, indexable])
+  @@index([type, status])
+  @@index([clusterId])
+  @@index([scheduledPublishAt])
+}
+
+/** Geselecteerde en alternatieve producten, met hun redactionele toelichting. */
+model EditorialPageProduct {
+  id              String               @id @default(cuid())
+  editorialPageId String
+  productId       String
+  role            EditorialProductRole @default(SELECTED)
+  position        Int                  @default(0)
+  /** Voor welke doelgroep of use case dit product de beste keuze is. */
+  bestForAudience String?
+  /** Waarom dit product bij deze use case past; uit feiten, niet uit smaak. */
+  recommendation  String?
+  /** Minimaal één aandachtspunt per product. */
+  caveat          String?
+  /** Label zoals "Beste binnen dit budget". */
+  label           String?
+  /** Bewust boven het budget opgenomen, met uitleg. */
+  exceedsBudget   Boolean              @default(false)
+  budgetNote      String?
+  createdAt       DateTime             @default(now())
+
+  editorialPage EditorialPage @relation(fields: [editorialPageId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([editorialPageId, productId])
+  @@index([editorialPageId, role, position])
+}
+
+/**
+ * Bibliotheek van vergelijkingscriteria. Criteria zijn herbruikbaar over
+ * pagina's; per pagina bepaalt EditorialPageCriterion de volgorde.
+ */
+model ComparisonCriterion {
+  name           String             @id
+  label          String
+  valueType      CriterionValueType @default(TEXT)
+  unit           String?
+  /** Mag dit criterium alleen met een bron worden gevuld? */
+  sourceRequired Boolean            @default(true)
+  /** Null wanneer "hoger" niet beter is (bijvoorbeeld bij een kleur). */
+  higherIsBetter Boolean?
+  explanation    String
+  displayOrder   Int                @default(0)
+  createdAt      DateTime           @default(now())
+
+  pages  EditorialPageCriterion[]
+  values ProductCriterionValue[]
+}
+
+model EditorialPageCriterion {
+  id              String   @id @default(cuid())
+  editorialPageId String
+  criterionName   String
+  displayOrder    Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  editorialPage EditorialPage       @relation(fields: [editorialPageId], references: [id], onDelete: Cascade)
+  criterion     ComparisonCriterion @relation(fields: [criterionName], references: [name], onDelete: Cascade)
+
+  @@unique([editorialPageId, criterionName])
+  @@index([editorialPageId, displayOrder])
+}
+
+/**
+ * Waarde van één criterium voor één product op één pagina. Ontbreekt de waarde,
+ * dan blijft de rij weg of staat zij op NOT_PROVIDED: de tabel toont dan
+ * "Niet opgegeven". AI vult hier niets in.
+ */
+model ProductCriterionValue {
+  id                 String             @id @default(cuid())
+  editorialPageId    String
+  productId          String
+  criterionName      String
+  value              String?
+  sourceId           String?
+  verifiedAt         DateTime?
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  editorialPage EditorialPage       @relation(fields: [editorialPageId], references: [id], onDelete: Cascade)
+  product       Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  criterion     ComparisonCriterion @relation(fields: [criterionName], references: [name], onDelete: Cascade)
+  source        EvidenceSource?     @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@unique([editorialPageId, productId, criterionName])
+  @@index([editorialPageId, criterionName])
+}
+
+/** Bron achter een feit. Zonder bron geen gecontroleerde criteriumwaarde. */
+model EvidenceSource {
+  id           String             @id @default(cuid())
+  sourceType   EvidenceSourceType
+  title        String
+  publisher    String?
+  url          String?
+  accessedAt   DateTime           @default(now())
+  /** Welke soorten feiten deze bron dekt, bijvoorbeeld "prijs" of "afmetingen". */
+  factTypes    String[]           @default([])
+  notes        String?
+  /** Mogen wij deze bron gebruiken? Zonder toestemming niet publiceren. */
+  usageAllowed Boolean            @default(true)
+  createdAt    DateTime           @default(now())
+
+  criterionValues ProductCriterionValue[]
+  pages           EditorialPageSource[]
+
+  @@index([sourceType])
+}
+
+model EditorialPageSource {
+  id              String   @id @default(cuid())
+  editorialPageId String
+  sourceId        String
+  note            String?
+  createdAt       DateTime @default(now())
+
+  editorialPage EditorialPage  @relation(fields: [editorialPageId], references: [id], onDelete: Cascade)
+  source        EvidenceSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([editorialPageId, sourceId])
+}
+
+/**
+ * Voorgestelde interne link. Suggesties worden automatisch gemaakt, maar een
+ * link verschijnt pas na redactionele goedkeuring (`APPROVED`).
+ */
+model InternalLinkSuggestion {
+  id         String                 @id @default(cuid())
+  fromType   InternalLinkTargetType
+  /** Slug of id, afhankelijk van het type. */
+  fromRef    String
+  toType     InternalLinkTargetType
+  toRef      String
+  anchorText String
+  reason     String
+  status     InternalLinkStatus     @default(SUGGESTED)
+  createdAt  DateTime               @default(now())
+  reviewedAt DateTime?
+
+  @@unique([fromType, fromRef, toType, toRef])
+  @@index([status])
+  @@index([toType, toRef, status])
+}
+
+/**
+ * Redactiekalender. Eén rij per gepland product of geplande pagina, met de
+ * momenten waarop een fact-check, prijscontrole of update nodig is.
+ */
+model ContentPlanEntry {
+  id                    String               @id @default(cuid())
+  type                  ContentPlanEntryType
+  title                 String
+  productId             String?
+  editorialPageId       String?
+  clusterId             String?
+  scheduledFor          DateTime
+  factCheckDueAt        DateTime?
+  priceCheckDueAt       DateTime?
+  /** Seizoensperiode, bijvoorbeeld "sinterklaas-2026" of "zomer". */
+  season                String?
+  /** Waar dit op de homepage moet landen; een sectienaam of leeg. */
+  homepagePlacement     String?
+  updateReminderAt      DateTime?
+  /** Opnieuw publiceren zodra wij een relevante prijsdaling meten. */
+  republishOnPriceDrop  Boolean              @default(false)
+  status                ContentPlanStatus    @default(PLANNED)
+  notes                 String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  product       Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  editorialPage EditorialPage?  @relation(fields: [editorialPageId], references: [id], onDelete: Cascade)
+  cluster       ContentCluster? @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+
+  @@index([scheduledFor, status])
+  @@index([type, status])
 }

@@ -50,6 +50,18 @@ const serverSchema = z.object({
   MAX_PER_CATEGORY: z.coerce.number().int().min(1).max(50).default(4),
   /** Minimale breedte en hoogte van een productafbeelding. */
   IMAGE_MIN_DIMENSION: z.coerce.number().int().min(100).max(4000).default(400),
+  /** Drempels waarboven een cluster prominent in de navigatie mag staan. */
+  CLUSTER_MIN_PRODUCTS: z.coerce.number().int().min(1).max(500).default(15),
+  CLUSTER_MIN_EDITORIAL_PAGES: z.coerce.number().int().min(0).max(100).default(2),
+  /** Aantal productplaatsingen op de homepage; zie src/lib/editorial/homepage.ts. */
+  HOMEPAGE_MIN_PLACEMENTS: z.coerce.number().int().min(4).max(200).default(32),
+  HOMEPAGE_MAX_PLACEMENTS: z.coerce.number().int().min(4).max(200).default(40),
+  /** Launchdoelen voor het dashboard; het zijn doelen, geen data. */
+  LAUNCH_TARGET_PUBLISHED_PRODUCTS: z.coerce.number().int().min(0).default(150),
+  LAUNCH_TARGET_PLANNED_PRODUCTS: z.coerce.number().int().min(0).default(50),
+  LAUNCH_TARGET_PUBLISHED_PAGES: z.coerce.number().int().min(0).default(25),
+  LAUNCH_TARGET_PLANNED_PAGES: z.coerce.number().int().min(0).default(15),
+  LAUNCH_TARGET_PLANNED_DAYS: z.coerce.number().int().min(0).default(30),
 })
 
 type RawServerEnv = z.infer<typeof serverSchema>
@@ -144,6 +156,46 @@ export function editionLimitsFromEnv(env: ServerEnv = serverEnv()): {
     minAdditionalItems: min,
     targetAdditionalItems: target,
     maxAdditionalItems: max,
+  }
+}
+
+/** Drempels voor clusterzichtbaarheid; per cluster te overschrijven. */
+export function clusterThresholdsFromEnv(env: ServerEnv = serverEnv()): {
+  minProducts: number
+  minEditorialPages: number
+} {
+  return {
+    minProducts: env.CLUSTER_MIN_PRODUCTS,
+    minEditorialPages: env.CLUSTER_MIN_EDITORIAL_PAGES,
+  }
+}
+
+/**
+ * Hoeveel productplaatsingen de homepage moet halen. Het minimum wordt nooit
+ * hoger dan het maximum; anders zou de homepage nooit "gevuld" kunnen zijn.
+ */
+export function homepagePlacementsFromEnv(env: ServerEnv = serverEnv()): {
+  min: number
+  max: number
+} {
+  const max = env.HOMEPAGE_MAX_PLACEMENTS
+  return { min: Math.min(env.HOMEPAGE_MIN_PLACEMENTS, max), max }
+}
+
+/** Launchdoelen voor het dashboard. Doelen, geen gegenereerde gegevens. */
+export function launchTargetsFromEnv(env: ServerEnv = serverEnv()): {
+  publishedProducts: number
+  plannedProducts: number
+  publishedPages: number
+  plannedPages: number
+  plannedDays: number
+} {
+  return {
+    publishedProducts: env.LAUNCH_TARGET_PUBLISHED_PRODUCTS,
+    plannedProducts: env.LAUNCH_TARGET_PLANNED_PRODUCTS,
+    publishedPages: env.LAUNCH_TARGET_PUBLISHED_PAGES,
+    plannedPages: env.LAUNCH_TARGET_PLANNED_PAGES,
+    plannedDays: env.LAUNCH_TARGET_PLANNED_DAYS,
   }
 }
 

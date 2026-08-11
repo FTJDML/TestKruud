@@ -42,6 +42,12 @@ export function SiteHeader() {
                 Categorieën
               </Link>
               <Link
+                href="/gidsen"
+                className="hidden min-h-11 items-center rounded-pill px-3 text-sm font-medium text-ink transition-colors hover:bg-canvas lg:inline-flex"
+              >
+                Gidsen
+              </Link>
+              <Link
                 href="/nieuw"
                 className="hidden min-h-11 items-center rounded-pill px-3 text-sm font-medium text-ink transition-colors hover:bg-canvas lg:inline-flex"
               >

@@ -53,6 +53,8 @@ describe.skipIf(!hasDatabase)('publieke toegang per productstatus', () => {
         primaryCategory: category,
         imageUrl: '/demo/placeholder.svg',
         imageAlt: 'Statustest',
+        // Gecontroleerde specificaties: nodig voor eigen inhoud bij indexering.
+        specifications: { Kleur: 'zwart', Materiaal: 'staal' },
         isDemo: false,
         status: options.status,
         publishedAt: options.status === 'PUBLISHED' ? new Date() : null,
@@ -73,6 +75,7 @@ describe.skipIf(!hasDatabase)('publieke toegang per productstatus', () => {
                   metaDescription: 'Testproduct voor de publicatieregels.',
                   promptVersion: 'test',
                   aiProvider: 'test',
+                  reviewedAt: new Date(),
                 },
               },
             }),
@@ -99,6 +102,24 @@ describe.skipIf(!hasDatabase)('publieke toegang per productstatus', () => {
     process.env.APP_ENV = 'test'
     process.env.DEMO_CONTENT_ENABLED = 'true'
     resetServerEnvCache()
+
+    // De sitemap bevat alleen indexeerbare pagina's, en indexering vraagt dat een
+    // product via een zichtbaar cluster bereikbaar is. Daarom hoort er bij deze
+    // test een cluster dat de categorie dekt.
+    await prisma.contentCluster.create({
+      data: {
+        slug: `cluster-${suffix}`,
+        title: 'Statuscluster',
+        introduction: 'Cluster voor de statustests.',
+        categorySlugs: ['comfort-en-gemak'],
+        seoTitle: 'Statuscluster',
+        metaDescription: 'Cluster dat bij de statustests hoort en de categorie dekt.',
+        status: 'PUBLISHED',
+        visible: true,
+        minProducts: 1,
+        minEditorialPages: 0,
+      },
+    })
 
     const merchant = await prisma.merchant.create({
       data: {
@@ -130,6 +151,7 @@ describe.skipIf(!hasDatabase)('publieke toegang per productstatus', () => {
 
   afterAll(async () => {
     await prisma.product.deleteMany({ where: { id: { in: [...ids.values()] } } })
+    await prisma.contentCluster.deleteMany({ where: { slug: `cluster-${suffix}` } })
     await prisma.merchant.deleteMany({ where: { slug: `merchant-${suffix}` } })
     await prisma.$disconnect()
   })
@@ -169,7 +191,9 @@ describe.skipIf(!hasDatabase)('publieke toegang per productstatus', () => {
     expect(newSlugs).not.toContain(slugFor('zonder-content'))
   })
 
-  it('zet alleen publiek zichtbare producten in de sitemap', async () => {
+  it('zet alleen indexeerbare producten in de sitemap', async () => {
+    // Publiek zichtbaar is niet genoeg: de sitemap vraagt ook eigen inhoud, een
+    // actieve aanbieding en bereikbaarheid via categorie en cluster.
     const slugs = (await getIndexableProducts()).map((product) => product.slug)
     expect(slugs).toContain(slugFor('published'))
     for (const name of [...nonPublicStatuses.map((status) => status.toLowerCase()), 'kapotte-afbeelding', 'zonder-content']) {

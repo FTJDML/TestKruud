@@ -20,6 +20,7 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:editorial": "tsx prisma/seed-editorial.ts",
     "db:reset": "prisma migrate reset --force",
     "job:daily": "tsx src/jobs/daily.ts",
     "job:ingest": "tsx src/jobs/ingest.ts",

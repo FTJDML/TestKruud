@@ -19,6 +19,8 @@ import { SectionHeader } from '@/components/ui/SectionHeader'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { categoryBySlug, categorySlugForName } from '@/lib/categories'
 import { getComparableProducts, getProductBySlug } from '@/lib/database/queries'
+import { getEditorialPagesForProduct } from '@/lib/database/editorial-queries'
+import { EditorialPageCards } from '@/components/editorial/EditorialPageCards'
 import { breadcrumbJsonLd, productJsonLd } from '@/lib/seo/jsonld'
 import { buildMetadata } from '@/lib/seo/metadata'
 
@@ -39,8 +41,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: product.seoTitle,
     description: product.metaDescription,
     path: `/product/${product.slug}`,
-    // Demo-producten worden nooit geïndexeerd.
-    noindex: product.isDemo,
+    // Demo-inhoud én pagina's die de indexeringspoort niet halen: browsebaar,
+    // maar niet in de index. Zij linken wel door (`noindex, follow`).
+    noindex: product.isDemo || !product.indexable,
+    followWhenNoindex: true,
     image: product.imageUrl,
     type: 'article',
   })
@@ -51,7 +55,10 @@ export default async function ProductPage({ params }: Props) {
   const product = await getProductBySlug(slug)
   if (!product) notFound()
 
-  const related = await getComparableProducts(product, 4)
+  const [related, editorialPages] = await Promise.all([
+    getComparableProducts(product, 4),
+    getEditorialPagesForProduct(product.id, 3),
+  ])
   const category = categoryBySlug(categorySlugForName(product.category))
   const crumbs: Crumb[] = [
     { name: 'Home', path: '/' },
@@ -61,8 +68,13 @@ export default async function ProductPage({ params }: Props) {
 
   return (
     <>
-      {/* productJsonLd levert null bij demo-inhoud of zonder geldige prijs. */}
-      <JsonLd data={[productJsonLd(product), breadcrumbJsonLd(crumbs)].filter((entry) => entry !== null)} />
+      {/*
+        productJsonLd levert null bij demo-inhoud of zonder geldige prijs; een
+        pagina die niet indexeerbaar is krijgt ook geen Product-markup.
+      */}
+      <JsonLd
+        data={[product.indexable ? productJsonLd(product) : null, breadcrumbJsonLd(crumbs)]}
+      />
       <ProductViewTracker productId={product.id} />
 
       <Container className="pt-6">
@@ -404,6 +416,18 @@ export default async function ProductPage({ params }: Props) {
       <Container className="pt-10">
         <AdSlot slot="product-rectangle" variant="rectangle" />
       </Container>
+
+      {editorialPages.length > 0 ? (
+        <Container className="pt-14">
+          <SectionHeader
+            title="In onze vergelijkingen"
+            description="Redactionele pagina's waarin dit product naast andere producten staat."
+            href="/gidsen"
+            linkLabel="Alle gidsen"
+          />
+          <EditorialPageCards pages={editorialPages} />
+        </Container>
+      ) : null}
 
       {related.length > 0 ? (
         <Container className="pt-14">

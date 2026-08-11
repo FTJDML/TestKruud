@@ -23,21 +23,22 @@ Tailwind CSS 4 · PostgreSQL met Prisma 7 · Zod · Lucide · Vitest · Playwrig
 9. [Back-ups en herstel](#back-ups-en-herstel)
 10. [Beveiliging](#beveiliging)
 11. [Tests, CI en kwaliteit](#tests-ci-en-kwaliteit)
-12. [DEAL en DISCOVERY](#deal-en-discovery)
-13. [Afbeeldingen: validatie en terugval](#afbeeldingen-validatie-en-terugval)
-14. [Publicatiestatussen en wat publiek is](#publicatiestatussen-en-wat-publiek-is)
-15. [Onze eigen prijsanalyse](#onze-eigen-prijsanalyse)
-16. [Contentkwaliteit](#contentkwaliteit)
-17. [Dagelijkse job, worker en cron](#dagelijkse-job-worker-en-cron)
-18. [Adminpaneel](#adminpaneel)
-19. [Advertenties inschakelen](#advertenties-inschakelen)
-20. [Anthropic-provider instellen](#anthropic-provider-instellen)
-21. [Live bron met echte productfoto's](#live-bron-met-echte-productfotos)
-22. [Nieuwe merchant toevoegen](#nieuwe-merchant-toevoegen)
-23. [Affiliatenetwerken en trackinglinks](#affiliatenetwerken-en-trackinglinks)
-24. [Demo-inhoud uitzetten](#demo-inhoud-uitzetten)
-25. [Projectstructuur](#projectstructuur)
-26. [Wat nodig is voor de eerste echte merchant](#wat-nodig-is-voor-de-eerste-echte-merchant)
+12. [Editorial SEO Engine](#editorial-seo-engine)
+13. [DEAL en DISCOVERY](#deal-en-discovery)
+14. [Afbeeldingen: validatie en terugval](#afbeeldingen-validatie-en-terugval)
+15. [Publicatiestatussen en wat publiek is](#publicatiestatussen-en-wat-publiek-is)
+16. [Onze eigen prijsanalyse](#onze-eigen-prijsanalyse)
+17. [Contentkwaliteit](#contentkwaliteit)
+18. [Dagelijkse job, worker en cron](#dagelijkse-job-worker-en-cron)
+19. [Adminpaneel](#adminpaneel)
+20. [Advertenties inschakelen](#advertenties-inschakelen)
+21. [Anthropic-provider instellen](#anthropic-provider-instellen)
+22. [Live bron met echte productfoto's](#live-bron-met-echte-productfotos)
+23. [Nieuwe merchant toevoegen](#nieuwe-merchant-toevoegen)
+24. [Affiliatenetwerken en trackinglinks](#affiliatenetwerken-en-trackinglinks)
+25. [Demo-inhoud uitzetten](#demo-inhoud-uitzetten)
+26. [Projectstructuur](#projectstructuur)
+27. [Wat nodig is voor de eerste echte merchant](#wat-nodig-is-voor-de-eerste-echte-merchant)
 
 ---
 
@@ -129,6 +130,10 @@ Alle variabelen staan met uitleg in `.env.example`. De belangrijkste:
 | `MAX_PER_CATEGORY` | nee | Maximaal aantal producten uit dezelfde categorie, standaard 4. |
 | `IMAGE_MIN_DIMENSION` | nee | Minimale breedte én hoogte in pixels, standaard 400. Kleiner wordt afgekeurd. |
 | `NEXT_IMAGE_EXTRA_HOSTS` | nee | Komma-gescheiden hostnamen die `next/image` mag optimaliseren, voor merchant-CDN's. |
+| `CLUSTER_MIN_PRODUCTS` | nee | Minimaal aantal gepubliceerde producten voordat een cluster prominent in de navigatie mag, standaard 15. |
+| `CLUSTER_MIN_EDITORIAL_PAGES` | nee | Minimaal aantal redactionele pagina's per cluster, standaard 2. |
+| `HOMEPAGE_MIN_PLACEMENTS` / `HOMEPAGE_MAX_PLACEMENTS` | nee | Aantal productplaatsingen op de homepage, standaard 32 en 40. |
+| `LAUNCH_TARGET_*` | nee | Doelen voor `/admin/lancering` (producten, pagina's, geplande dagen). Doelen, geen data. |
 | `POSTGRES_*`, `SITE_DOMAIN`, `ACME_EMAIL` | alleen Docker | Databasegegevens en het domein plus e-mailadres voor Caddy. |
 
 ## Database: migraties en seeden
@@ -138,6 +143,8 @@ pnpm db:migrate                # veilig migratiecommando: past alleen bestaande
                                # migraties toe (prisma migrate deploy)
 pnpm db:migrate:dev            # development: nieuwe migratie maken
 pnpm db:seed                   # demo-inhoud, alleen buiten productie
+pnpm db:seed:editorial         # contentclusters en de criteriumbibliotheek
+                               # (structuur, geen producten of feiten)
 pnpm db:seed:demo              # zelfde, met de vlaggen expliciet aan
 pnpm db:reset                  # database leegmaken en opnieuw seeden
 ```
@@ -331,16 +338,25 @@ Daar komen de controles van deze fase bij:
 | AI mag geen eerstehandservaring claimen; prijsuitspraken staan niet in de tekst | `ai-grounding.test.ts` |
 | Minimum van acht producten, dezelfde deal op opeenvolgende dagen, DISCOVERY zonder valse korting | `edition.test.ts` |
 | De afgeschafte zin over eigen verkoop komt nergens meer voor, en de vaste UI-teksten staan er wel | `copy-hygiene.test.ts` |
+| Quality gate voor redactionele pagina's, minimumaantal producten, ontbrekende criteriumwaarde, budgetgrens, uitgelicht product, rangschikking zonder commissie | `editorial-gate.test.ts` |
+| Overlappende primaryQuery waarschuwt, bijna identieke pagina's worden niet beide indexeerbaar, homepagevulling | `editorial-overlap.test.ts` |
+| AI-draft blijft NEEDS_REVIEW, claimt geen eigen ervaring, vult geen ontbrekend criterium in; CSV-import van briefs en producten | `editorial-draft.test.ts` |
+| Verweesde pagina geblokkeerd, noindex-product blijft browsebaar, slug blijft na feedkoppeling, structured data gelijk aan de zichtbare prijs, launchdashboard zonder fictieve aantallen | `editorial-database.test.ts` |
 
-Drie testbestanden gebruiken een echte database wanneer `DATABASE_URL` is gezet
+Vier testbestanden gebruiken een echte database wanneer `DATABASE_URL` is gezet
 en slaan zichzelf anders over: `saves.test.ts` (dubbele saves),
-`demo-visibility.test.ts` (demo-inhoud verdwijnt uit alle publieke queries) en
-`public-access.test.ts` (elke productstatus).
+`demo-visibility.test.ts` (demo-inhoud verdwijnt uit alle publieke queries),
+`public-access.test.ts` (elke productstatus) en `editorial-database.test.ts` (de
+redactionele engine end-to-end).
 
 De Playwright-tests dekken naast de smoketest ook kapotte afbeeldingen
 (`tests/e2e/images.spec.ts`): de placeholder is bereikbaar, een mislukte
 afbeelding valt erop terug zonder layout shift, de productpagina blijft werken en
-een melding van een kapotte afbeelding haalt het product niet offline.
+een melding van een kapotte afbeelding haalt het product niet offline. En de
+redactionele laag (`tests/e2e/editorial.spec.ts`): het gidsenoverzicht, echte
+404's voor een onbekende gids of een onbekend thema, de homepagevulling zonder
+directe herhaling, en — zodra er een gepubliceerde gids is — de sectie "Hoe deze
+selectie is gemaakt" plus structured data zonder sterren of reviews.
 
 CI (`.github/workflows/ci.yml`) draait op elke push en pull request:
 dependencies installeren, lint, typecheck, unit tests en een productiebuild. De
@@ -353,6 +369,202 @@ mobiel (390 × 844). Tegen een productiebuild testen:
 ```bash
 pnpm build && PLAYWRIGHT_DEV=0 pnpm test:e2e
 ```
+
+## Editorial SEO Engine
+
+Naast de dagelijkse deals heeft de site een redactionele laag: vergelijkingen,
+koopgidsen en collecties, gebundeld in contentclusters. Alles daarin rust op
+gecontroleerde brondata — er wordt nooit een specificatie, prijs of conclusie
+verzonnen om een pagina te vullen.
+
+### Contentclusters
+
+Zes clusters vormen de thematische structuur (`/thema/<slug>`):
+
+| Cluster | Categorieën |
+| --- | --- |
+| Koffie & Slimme Keuken | keuken-en-apparaten, comfort-en-gemak |
+| Smart Home & Schoonmaak | smart-home-en-tech, comfort-en-gemak |
+| Gaming & Entertainment Thuis | gaming-en-entertainment, wonen-en-design |
+| Tuin & Buitenleven | tuin-en-buitenleven |
+| Wonen, Design & Meubels | wonen-en-design, comfort-en-gemak |
+| Speelgoed, Hobby & Cadeaus | speelgoed-en-hobby, cadeaus, onnodig-maar-geweldig |
+
+```bash
+pnpm db:seed:editorial    # zet de zes clusters (concept, onzichtbaar) en de
+                          # criteriumbibliotheek klaar; maakt geen producten
+```
+
+Elk cluster heeft een titel, slug, redactionele introductie, hoofdafbeelding,
+zichtbaarheid, minimumaantal producten, minimumaantal redactionele pagina's,
+primaire onderwerpen, onderliggende categorieën, SEO-title, meta description en
+publicatiestatus. Een cluster staat **pas prominent in de navigatie** wanneer het
+`status = PUBLISHED`, `visible = true` én de drempels haalt (standaard 15
+gepubliceerde producten en 2 redactionele pagina's, in te stellen per cluster of
+via `CLUSTER_MIN_*`). Beheer: `/admin/clusters`.
+
+### Archetypen
+
+Elk archetype heeft eigen eisen, een eigen editor (`src/components/admin/editors/`)
+en een eigen rendertemplate (`src/components/editorial/templates/`).
+
+| Type | Minimaal | Criteria | Methodologie | Budget | "Beste"-claim |
+| --- | --- | --- | --- | --- | --- |
+| `COMPARISON` | 3 producten (advies 4–6) | ≥ 4 | verplicht | — | toegestaan |
+| `BEST_OF` | 3 | ≥ 3 | verplicht | — | toegestaan |
+| `BUDGET_GUIDE` | 3 | ≥ 3 | verplicht | verplicht | toegestaan |
+| `USE_CASE_GUIDE` | 3 | ≥ 3 | verplicht | — | toegestaan |
+| `GIFT_GUIDE` | 4 | ≥ 2 | — | verplicht | **nee** |
+| `DESIGN_COLLECTION` | 3 | ≥ 3 | — | — | **nee** |
+| `DEAL_COLLECTION` | 4 | — | — | — | **nee** |
+| `PROBLEM_SOLUTION` | 3 | ≥ 3 | verplicht | — | toegestaan |
+| `DISCOVERY_COLLECTION` | 4 | — | — | — | **nee** |
+
+Bij een designcollectie en een cadeaugids spreken wij geen winnaar uit: stijl en
+smaak zijn niet meetbaar. `"Beste overall"` mag alleen bij een archetype dat een
+objectieve claim toestaat én met een methodologie die haar onderbouwt.
+
+### Vergelijkingscriteria
+
+Criteria staan in een bibliotheek (`ComparisonCriterion`, 27 stuks in de seed) met
+naam, label, waardetype, eenheid, of een bron verplicht is, of hoger beter is,
+uitleg en volgorde. Per pagina koppel je criteria; per product en criterium staat
+één waarde (`ProductCriterionValue`) met bron, controlemoment en status:
+
+| Status | Betekenis | Op de pagina |
+| --- | --- | --- |
+| `UNVERIFIED` | ingevuld, nog niet gecontroleerd | niet getoond; blokkeert indexering |
+| `VERIFIED` | gecontroleerd, met bron | de waarde |
+| `NOT_PROVIDED` | de bron levert dit niet | **"Niet opgegeven"** |
+
+**AI vult nooit een ontbrekende waarde in.** Een lege cel is geen ruimte om te
+raden: zij wordt zichtbaar leeg met "Niet opgegeven". De vergelijkingstabel is op
+brede schermen één tabel met scroll binnen de eigen kaart en op mobiel product
+voor product, met `dl`-lijsten die een screenreader netjes voorleest.
+
+### Uitgelicht product
+
+Een `EditorialPage` kan één uitgelicht product hebben. Een affiliateproduct mag
+dat zijn, maar **een vergoeding bepaalt nooit de uitkomst**: de rangschikking
+(`src/lib/editorial/ranking.ts`) krijgt alleen gecontroleerde criteriumwaarden en
+onze eigen prijsmeting binnen — er is geen veld voor commissie, netwerk of
+merchant, en een test legt vast dat extra velden de score niet veranderen.
+
+Verplicht bij een uitgelichte keuze: een label, een reden die naar de criteria
+verwijst, minimaal twee gecontroleerde criteriumwaarden, een doelgroep of use
+case, minimaal één aandachtspunt, en bij alternatieven een notitie wanneer een
+alternatief beter past. Labels: *Onze opvallendste keuze*, *Beste voor kleine
+keukens*, *Beste voor design*, *Beste binnen dit budget*, *Beste voor beginners*,
+*Meest complete keuze*, en *Beste overall* onder de voorwaarden hierboven.
+
+### Zoekintentie en overlap
+
+De `primaryQuery` is één echte gebruikersvraag en komt natuurlijk terug in de
+SEO-title, de H1, de introductie, een tussenkop en de meta description. Er wordt
+géén pagina per zoekvariant gemaakt: de `ContentOverlapService`
+(`src/lib/editorial/overlap.ts`) vergelijkt elke nieuwe of gewijzigde pagina met
+de bestaande op vraag (50%), productselectie (30%) en tekst (20%).
+
+| Uitkomst | Wat er gebeurt |
+| --- | --- |
+| onder 55% | geen bezwaar |
+| vanaf 55% | waarschuwing met voorstel (canonical of samenvoegen) |
+| vanaf 75% | **blokkade**: de pagina wordt niet aangemaakt of niet gepubliceerd |
+| vraag ≥ 80% | altijd minimaal een waarschuwing, ook bij andere producten |
+| vraag ≥ 80% + selectie ≥ 60% | blokkade met voorstel samenvoegen |
+
+### IndexabilityQualityGate
+
+Publiek browsebaar en indexeerbaar zijn twee verschillende dingen. Wat de poort
+niet haalt blijft bereikbaar met `noindex, follow` en krijgt geen structured data.
+`indexable` is nooit een knop: het is altijd de uitkomst van
+`src/lib/editorial/quality-gate.ts`, opgeslagen met de redenen erbij.
+
+Een **redactionele pagina** is indexeerbaar wanneer: status `PUBLISHED`, review
+afgerond, `primaryQuery` en `searchIntent` aanwezig, methodologie waar het
+archetype die vraagt, het minimumaantal producten gehaald, elk geselecteerd
+product `PUBLISHED` met een geldige afbeelding en een actieve, recent
+gecontroleerde aanbieding (< 7 dagen), per product een aandachtspunt waar het
+archetype dat vraagt, alle criteriumwaarden gecontroleerd of expliciet "niet
+opgegeven", gecontroleerde waarden met bron, geen product boven het budget zonder
+markering en uitleg, minimaal één bron en geen bron zonder gebruiksrecht, een
+fact-checkdatum, een uitgelichte keuze die aan de regels hierboven voldoet, een
+unieke SEO-title en meta description, geen sterke overlap, en minimaal één
+inkomende interne link (een cluster telt).
+
+Een **productpagina** is indexeerbaar wanneer: `PUBLISHED`, afbeelding `VALID`,
+redactionele content beoordeeld, minimaal één actieve aanbieding, gecontroleerde
+specificaties of minimaal twee eigen prijsmetingen, niet voornamelijk overgenomen
+merchanttekst (eigen tekst minimaal 1,5× de brontekst), geen demo-inhoud, en
+bereikbaar vanuit zowel een categorie als een zichtbaar cluster.
+
+### Bronnen
+
+`EvidenceSource` legt vast waar een feit vandaan komt: type, titel, uitgever, URL,
+datum, soorten feiten, notities en of wij de bron mogen gebruiken. Types:
+`MANUFACTURER_DOCUMENTATION`, `MERCHANT_FEED`, `AFFILIATE_API`,
+`MANUAL_PRICE_CHECK`, `OWN_PRICE_HISTORY`, `OWN_HANDS_ON_TEST`, `LICENSED_SOURCE`
+en `OTHER_VERIFIED_SOURCE`.
+
+Elke redactionele pagina toont "Hoe deze selectie is gemaakt" met de
+selectiecriteria, het aantal vergeleken producten, de datum van de laatste
+controle, de gebruikte brontypen en of wij zelf hebben getest. Die laatste claim
+is nooit een aanname: zij staat er alleen met een bron van het type
+`OWN_HANDS_ON_TEST`.
+
+### Interne links
+
+`pnpm`-loos, via `/admin/links` of de knop op het launchdashboard, worden
+suggesties berekend uit bestaande relaties: cluster → nichepagina, nichepagina →
+geselecteerde producten, product → relevante vergelijkingen, product →
+alternatieven, categorie → budgetgidsen, cadeaugids → productpagina's. Een
+suggestie verschijnt **pas na goedkeuring** op de site; een afgewezen suggestie
+komt niet terug. Een gepubliceerde pagina zonder cluster en zonder goedgekeurde
+link is verweesd en wordt niet geïndexeerd — het launchdashboard toont ze.
+
+### AI maakt alleen concepten
+
+`src/lib/ai/editorial-draft.ts` levert een draft met introductie, methodologie,
+selectiecriteria, conclusie, SEO-title, meta description en FAQ-voorstellen. De
+draft krijgt alleen gecontroleerde feiten mee: criteriumwaarden die zijn
+gecontroleerd, expliciet benoemde ontbrekende waarden, bekende aandachtspunten,
+doelgroep, budget, zoekintentie, goedgekeurde bronnen en `experienceType`.
+
+Elke draft zet de pagina op `NEEDS_REVIEW` en wist de review. Een draft wordt
+geweigerd wanneer zij een eigen test suggereert die niet is uitgevoerd, een
+ontbrekend criterium alsnog als feit invult, percentages of bedragen in de tekst
+zet, of niet Nederlands is. Prijsuitspraken staan niet in opgeslagen tekst: die
+horen bij de productpagina, rechtstreeks uit de meetgegevens.
+
+### Batchimport en planning
+
+```bash
+# /admin/import — twee sjablonen, beide met een voorbeeldregel
+#   producten  -> nieuw = CANDIDATE met imageStatus PENDING
+#   briefs     -> DRAFT, of SCHEDULED met scheduledPublishAt
+```
+
+Bulkacties in `/admin/redactie`: concept laten schrijven, fact-check afvinken,
+inplannen (alleen met afgeronde review) en archiveren. **Bulk publiceren bestaat
+niet**: elke publicatie is een losse, bewuste keuze.
+
+De redactiekalender (`/admin/kalender`) plant producten en pagina's met
+fact-checkdatum, prijscontrole, seizoensperiode, homepageplaatsing,
+update-herinnering en "opnieuw publiceren bij een gemeten prijsdaling".
+
+### Launchdashboard
+
+`/admin/lancering` toont zichtbare producten, indexeerbare productpagina's,
+gepubliceerde en indexeerbare redactionele pagina's, geplande pagina's en
+producten, dagen content vooruit, homepagevulling, lege categorieën, clusters
+zonder genoeg inhoud, verweesde pagina's, overlappende primaryQueries, pagina's
+zonder bronnen of fact-check, pagina's met verouderde prijzen en producten met een
+ongeldige afbeelding — in groen, oranje en rood.
+
+**Elk getal is een meting op echte rijen.** Er wordt niets bijgeschat om een vakje
+groen te maken; een rood vakje betekent dat er werk ligt. De doelen (150
+gepubliceerde producten, 50 geplande, 25 gepubliceerde pagina's, 15 geplande, 30
+dagen vooruit) staan in `LAUNCH_TARGET_*`.
 
 ## DEAL en DISCOVERY
 
@@ -589,7 +801,8 @@ pnpm job:content --force       # alles opnieuw, bijvoorbeeld na een nieuwe sjabl
 ```
 
 De volgorde binnen `job:daily` is: importeren → afbeeldingen valideren →
-prijzen analyseren → content genereren → concepten promoveren → editie
+prijzen analyseren → content genereren → concepten promoveren → geplande
+redactionele pagina's publiceren → indexeerbaarheid herberekenen → editie
 samenstellen. De analyse gaat dus vóór de selectie, zodat een verse prijsdaling
 diezelfde dag in `LATEST_PRICE_DROPS` kan staan.
 
@@ -653,7 +866,12 @@ als hero instellen, content opnieuw genereren, merchants in- en uitschakelen,
 handmatig één bron uitlezen, de dagelijkse job starten, scrapehistorie, stale
 aanbiedingen en de echte save- en klikdata.
 
-Twee pagina's horen bij deze fase:
+Routes van de Editorial SEO Engine: `/admin/lancering` (launchdashboard),
+`/admin/redactie` (pagina's met bulkacties), `/admin/redactie/<id>` (editor per
+archetype), `/admin/clusters`, `/admin/kalender`, `/admin/links` en
+`/admin/import`.
+
+Twee pagina's horen bij de vorige fase:
 
 - **`/admin/producten/<id>/preview`** — beveiligde preview van een concept. Toont
   het product zoals het eruit zou zien, plus een banner met de reden waarom het
@@ -994,14 +1212,18 @@ src/
     admin/             beveiligd adminpaneel (eigen layout, altijd noindex)
     api/               saves, events, cron/daily, health, ready
     go/[offerId]/      centrale uitgaande route voor affiliate-links
-  components/          ads/, layout/, product/, editorial/, seo/, ui/
+  components/          ads/, admin/, layout/, product/, editorial/ (met
+                       templates/ per archetype), seo/, ui/
   lib/
     affiliate/          netwerkinterface, link builders, subid
-    ai/                EditorialContentProvider (fixture | template | anthropic)
+    ai/                EditorialContentProvider en de draftgeneratie voor pagina's
     analysis/           eigen prijsanalyse en de zinnen die zij oplevert
     analytics/          interne eventlaag
     database/           Prisma-client en alle queries
+    csv/                sjablonen en parsers voor brief- en productimport
     deals/              dedupe, score, editieselectie, editiedatum, outbound
+    editorial/          archetypen, clusters, criteria, quality gate, overlap,
+                        rangschikking, interne links, homepage, launchcijfers
     images/             formaat- en afmetingcontrole, validatie met SSRF-bescherming
     pricing/            geld, korting, staleness (één centrale bron)
     products/           één definitie van "publiek zichtbaar"
@@ -1015,7 +1237,7 @@ src/
     sources/            live bron(nen) die echt over HTTP worden ingelezen
     schemas/            Zod-schema's voor feedconfiguratie
   jobs/                daily, ingest, content, analyze-prices, refresh-prices,
-                       images, worker en de gedeelde pipeline
+                       images, import-products, worker en de gedeelde pipeline
   instrumentation.ts   controle van de productieconfiguratie bij het starten
   types/               view-modellen
 prisma/                schema, migraties, seed

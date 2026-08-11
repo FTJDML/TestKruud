@@ -84,9 +84,11 @@ export type ContentBlocker = {
  */
 const firstHandPatterns: readonly RegExp[] = [
   // "Wij hebben dit product zelf gebruikt", maar ook "wij hebben deze tafel getest".
-  // "Gemeten" staat er bewust niet bij: prijzen meten is juist wat wij doen.
-  /\bwij hebben\b[^.!?]{0,60}\b(getest|gebruikt|geprobeerd|uitgeprobeerd)\b/i,
-  /\bzelf (getest|gebruikt|geprobeerd|uitgeprobeerd)\b/i,
+  // "Gemeten" staat er bewust niet bij: prijzen meten is juist wat wij doen. De
+  // lookahead op "niet" laat de eerlijke variant staan: "wij hebben dit product
+  // niet zelf gebruikt" mag er juist wél in.
+  /\bwij hebben\b(?![^.!?]*\bniet\b)[^.!?]{0,60}\b(getest|gebruikt|geprobeerd|uitgeprobeerd)\b/i,
+  /(?<!niet )\bzelf (getest|gebruikt|geprobeerd|uitgeprobeerd)\b/i,
   /\bin (onze|mijn) (test|ervaring)\b/i,
   /\bonze (eigen )?(test|ervaring|bevindingen)\b/i,
   // "Wij vonden de rand te smal" is een oordeel; "wij vonden geen

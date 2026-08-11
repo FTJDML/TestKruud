@@ -85,6 +85,8 @@ function detail(overrides: Partial<ProductDetailView> = {}): ProductDetailView {
     updatedAt: new Date('2026-08-11T08:00:00Z'),
     merchantDomain: 'demo.huisvondst.example',
     demoOrigin: 'fictief',
+    indexable: true,
+    indexabilityReasons: [],
     priceAnalysis: null,
     sources: {
       labels: ['demo-fixture'],

@@ -12,7 +12,13 @@ export const metadata: Metadata = {
 
 const navigation = [
   { href: '/admin', label: 'Overzicht' },
+  { href: '/admin/lancering', label: 'Lancering' },
   { href: '/admin/producten', label: 'Producten' },
+  { href: '/admin/redactie', label: 'Redactie' },
+  { href: '/admin/clusters', label: 'Clusters' },
+  { href: '/admin/kalender', label: 'Kalender' },
+  { href: '/admin/links', label: 'Interne links' },
+  { href: '/admin/import', label: 'Import' },
   { href: '/admin/merchants', label: 'Merchants' },
   { href: '/admin/integraties', label: 'Integraties' },
   { href: '/admin/runs', label: 'Runs & stale' },

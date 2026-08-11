@@ -1,9 +1,10 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/database/client'
 import { looksDutch } from '@/lib/ai/language'
-import { categorySlugForName } from '@/lib/categories'
+import { categories, categorySlugForName } from '@/lib/categories'
 import { demoContentEnabled } from '@/lib/env'
 import { checkPublicVisibility, publicProductFilter } from '@/lib/products/visibility'
+import { evaluateProductIndexability } from '@/lib/editorial/quality-gate'
 import { computeDealPricing, discountBadgeLabel, type DealPricing } from '@/lib/pricing/deal'
 import { analysisFromRecord } from '@/lib/analysis/from-record'
 import { priceStatements } from '@/lib/analysis/statements'
@@ -117,7 +118,12 @@ function toCardView(
   }
 }
 
-function toDetailView(product: ProductWithRelations, now: Date, history: PriceHistoryPoint[]): ProductDetailView {
+function toDetailView(
+  product: ProductWithRelations,
+  now: Date,
+  history: PriceHistoryPoint[],
+  indexability: { indexable: boolean; reasons: string[] },
+): ProductDetailView {
   const card = toCardView(product, { now })
   const specifications = Object.entries(
     (product.specifications && typeof product.specifications === 'object' && !Array.isArray(product.specifications)
@@ -170,6 +176,8 @@ function toDetailView(product: ProductWithRelations, now: Date, history: PriceHi
     shortSourceDescription: dutchSourceDescription(product.shortSourceDescription),
     priceHistory: history,
     updatedAt: product.updatedAt,
+    indexable: indexability.indexable,
+    indexabilityReasons: indexability.reasons,
     merchantDomain: best?.offer.merchant.domain ?? '',
     // Alleen fixturebronnen leveren verzonnen productgegevens; een ingelezen
     // democatalogus levert echte titels, prijzen en foto's.
@@ -212,6 +220,100 @@ function toDetailView(product: ProductWithRelations, now: Date, history: PriceHi
       }))
       .sort((left, right) => left.pricing.currentPriceCents - right.pricing.currentPriceCents),
   }
+}
+
+/**
+ * Categorieën die bij een gepubliceerd, zichtbaar cluster horen. Een
+ * productpagina is pas indexeerbaar wanneer zij ook via een cluster te vinden is.
+ */
+async function clusterCategorySlugs(): Promise<Set<string>> {
+  const clusters = await prisma.contentCluster.findMany({
+    where: { status: 'PUBLISHED', visible: true },
+    select: { categorySlugs: true },
+  })
+  return new Set(clusters.flatMap((cluster) => cluster.categorySlugs))
+}
+
+/**
+ * Past de IndexabilityQualityGate toe op één product. Publiek zichtbaar en
+ * indexeerbaar zijn twee dingen: een product zonder eigen inhoud blijft gewoon
+ * bereikbaar, maar krijgt `noindex, follow`.
+ */
+function productIndexability(
+  product: ProductWithRelations,
+  options: { clusterCategories: Set<string>; now: Date },
+): { indexable: boolean; reasons: string[] } {
+  const specifications =
+    product.specifications && typeof product.specifications === 'object' && !Array.isArray(product.specifications)
+      ? Object.keys(product.specifications as Record<string, unknown>).length
+      : 0
+  const activeOffers = product.offers.filter(
+    (offer) => offer.merchant.enabled && computeDealPricing(offer, options.now).isActive,
+  )
+  const ownText = [
+    product.editorial?.longDescription ?? '',
+    product.editorial?.teaser ?? '',
+    product.editorial?.whyItStandsOut ?? '',
+  ].join(' ').trim().length
+  const categorySlug = categorySlugForName(product.primaryCategory)
+
+  const verdict = evaluateProductIndexability({
+    status: product.status,
+    imageStatus: product.imageStatus,
+    hasEditorial: product.editorial !== null,
+    editorialReviewedAt: product.editorial?.reviewedAt ?? null,
+    activeOfferCount: activeOffers.length,
+    specificationCount: specifications,
+    observedPriceCount: product.analysis?.numberOfObservedPrices ?? 0,
+    ownTextLength: ownText,
+    sourceTextLength: (product.shortSourceDescription ?? '').trim().length,
+    experienceType: product.experienceType,
+    isDemo: product.isDemo,
+    demoContentEnabled: demoContentEnabled(),
+    hasCategoryLink: categories.some((category) => category.slug === categorySlug),
+    hasClusterLink: options.clusterCategories.has(categorySlug),
+  })
+  return { indexable: verdict.indexable, reasons: verdict.reasons }
+}
+
+/**
+ * Publieke producten binnen een aantal categorieën; gebruikt door de
+ * clusterpagina's. Nieuwste eerst, zodat een thema meebeweegt met de redactie.
+ */
+export async function getProductsForCategories(
+  categoryNames: readonly string[],
+  limit = 24,
+): Promise<ProductCardView[]> {
+  if (categoryNames.length === 0) return []
+  const products = await prisma.product.findMany({
+    where: publicProductWhere({ primaryCategory: { in: [...categoryNames] } }),
+    include: productInclude,
+    orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
+    take: limit,
+  })
+  const now = new Date()
+  return products.map((product) => toCardView(product, { now }))
+}
+
+/**
+ * Kaarten voor een lijst met product-id's, in de volgorde van de lijst. Alleen
+ * publiek zichtbare producten komen terug: een redactionele pagina die naar een
+ * concept verwijst, laat dat product dus gewoon weg.
+ */
+export async function productCardsByIds(
+  ids: readonly string[],
+  now: Date = new Date(),
+): Promise<ProductCardView[]> {
+  if (ids.length === 0) return []
+  const products = await prisma.product.findMany({
+    where: publicProductWhere({ id: { in: [...ids] } }),
+    include: productInclude,
+  })
+  const byId = new Map(products.map((product) => [product.id, product]))
+  return ids
+    .map((id) => byId.get(id))
+    .filter((product): product is ProductWithRelations => product !== undefined)
+    .map((product) => toCardView(product, { now }))
 }
 
 /**
@@ -338,7 +440,8 @@ export async function getProductBySlug(slug: string): Promise<ProductDetailView 
     })
     .reverse()
 
-  return toDetailView(product, now, history)
+  const clusterCategories = await clusterCategorySlugs()
+  return toDetailView(product, now, history, productIndexability(product, { clusterCategories, now }))
 }
 
 export async function getRelatedProducts(
@@ -549,11 +652,18 @@ export async function getSavedProductIds(visitorId: string): Promise<string[]> {
  * Een product met een kapotte afbeelding of zonder content staat er dus niet in.
  */
 export async function getIndexableProducts(): Promise<Array<{ slug: string; updatedAt: Date }>> {
-  return prisma.product.findMany({
+  const products = await prisma.product.findMany({
     where: publicProductFilter({ isDemo: false }),
-    select: { slug: true, updatedAt: true },
+    include: productInclude,
     orderBy: { updatedAt: 'desc' },
   })
+  // Publiek zichtbaar is niet genoeg: de sitemap bevat alleen pagina's die ook
+  // door de indexeringspoort komen (eigen inhoud, actieve aanbieding, bereikbaar).
+  const clusterCategories = await clusterCategorySlugs()
+  const now = new Date()
+  return products
+    .filter((product) => productIndexability(product, { clusterCategories, now }).indexable)
+    .map((product) => ({ slug: product.slug, updatedAt: product.updatedAt }))
 }
 
 export async function countPublishedProducts(): Promise<number> {
