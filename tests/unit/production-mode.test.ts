@@ -184,14 +184,14 @@ describe('logging van secrets', () => {
     const fields = redactFields({
       password: 'p9Xr2LmQ7vTb',
       ADMIN_SESSION_SECRET: 'nD8fJ2kQ7vZr4LmX9pWc3TgY6bH1sVe5',
-      apiKey: 'sk-ant-12345678',
+      apiKey: 'sk-voorbeeldwaarde-uit-een-test',
       nested: { cookie: 'hald_admin=abc.def', productSlug: 'office-chair' },
       reason: 'kan geen verbinding maken met postgresql://gebruiker:geheim@db:5432/hald',
     })
     const serialized = JSON.stringify(fields)
     expect(serialized).not.toContain('p9Xr2LmQ7vTb')
     expect(serialized).not.toContain('nD8fJ2kQ7vZr4LmX9pWc3TgY6bH1sVe5')
-    expect(serialized).not.toContain('sk-ant-12345678')
+    expect(serialized).not.toContain('sk-voorbeeldwaarde-uit-een-test')
     expect(serialized).not.toContain('hald_admin=abc.def')
     expect(serialized).not.toContain('geheim@db')
     // Onschuldige velden blijven leesbaar.
