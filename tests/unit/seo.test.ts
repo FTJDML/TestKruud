@@ -94,6 +94,8 @@ function detail(overrides: Partial<ProductDetailView> = {}): ProductDetailView {
       priceDataSince: null,
       merchantCount: 1,
       experienceType: 'NOT_TESTED',
+      priceCheckMethod: 'FEED',
+      imageAttribution: null,
     },
     offers: [],
     ...overrides,

@@ -96,6 +96,12 @@ enum ReferencePriceType {
   OWN_90_DAY_MEDIAN
 }
 
+/** Hoe een prijs is vastgesteld. Zichtbaar op de productpagina bij MANUAL. */
+enum PriceCheckMethod {
+  FEED
+  MANUAL
+}
+
 enum EditionStatus {
   DRAFT
   PUBLISHED
@@ -293,6 +299,20 @@ model Product {
    * De URL zoals de bron haar aanleverde, vóór normalisatie.
    */
   imageSourceUrl         String?
+  /**
+   * Waarop wij het gebruik van deze afbeelding baseren, bijvoorbeeld
+   * "open-icecat", "mediakit-fabrikant" of "eigen-foto". Leeg betekent: geen
+   * vastgelegde grondslag, en dan hoort de afbeelding niet publiek te staan.
+   */
+  imageUsageBasis        String?
+  /** Bronvermelding zoals die bij de afbeelding hoort. */
+  imageAttribution       String?
+  /** Waar de productgegevens vandaan komen, bijvoorbeeld "open-icecat". */
+  dataSource             String?
+  /** Sleutel van dit product bij die bron, voor herhaalbare imports. */
+  dataSourceRef          String?
+  manufacturerName       String?
+  manufacturerUrl        String?
   imageFailureReason     String?
   /**
    * Laatst gevalideerde afbeelding; een kapotte nieuwe URL vervangt haar niet.
@@ -349,6 +369,12 @@ model Offer {
    * Ruwe voorraadtekst uit de bron, voor uitleg in het adminpaneel.
    */
   availabilityLabel  String?
+  /**
+   * Hoe deze prijs is vastgesteld: `FEED` door een geautomatiseerde bron, of
+   * `MANUAL` door een mens die de winkelpagina heeft nagekeken. Bij MANUAL staat
+   * dat ook op de productpagina, zodat een bezoeker weet wat hij ziet.
+   */
+  priceCheckMethod   PriceCheckMethod    @default(FEED)
   productGroup       String?
   variantId          String?
   destinationUrl     String

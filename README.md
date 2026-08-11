@@ -40,6 +40,7 @@ Tailwind CSS 4 · PostgreSQL met Prisma 7 · Zod · Lucide · Vitest · Playwrig
 26. [Projectstructuur](#projectstructuur)
 27. [Wat nodig is voor de eerste echte merchant](#wat-nodig-is-voor-de-eerste-echte-merchant)
 28. [Stagingomgeving en statische opname](#stagingomgeving-en-statische-opname)
+29. [Launchcatalogus: Open Icecat en handmatige offers](#launchcatalogus-open-icecat-en-handmatige-offers)
 
 ---
 
@@ -1467,3 +1468,106 @@ weergave inclusief hamburgermenu.
 Dit is een opname, geen applicatie: server-side rendering, de database, de jobs,
 de API-routes en het adminpaneel zitten er niet in. Die zijn alleen te testen op
 een omgeving waar de applicatie echt draait.
+
+---
+
+## Launchcatalogus: Open Icecat en handmatige offers
+
+Voor een launch vóórdat er een affiliatekoppeling is, komen productgegevens en
+prijzen uit **twee gescheiden bronnen**. Dat is geen omweg maar de kern van de
+opzet: een catalogus weet wat een product is, een winkel weet wat het kost.
+
+| Bron | Levert | Levert nooit |
+| --- | --- | --- |
+| Open Icecat-export | titel, merk, model, EAN, categorie, specificaties, toegestane afbeelding, fabrikant | prijs, voorraad, winkel |
+| `templates/launch-offers.csv` | winkel, gewone winkel-URL, prijs, van-prijs met type, voorraad, controlemoment, promotie-einddatum | productgegevens, affiliatelinks |
+
+Geen van beide imports scrapet een webshop. De catalogusimport leest een export
+van je eigen Open Icecat-account; de offerimport leest wat een mens heeft
+nagekeken.
+
+### Stap 1: catalogus importeren
+
+```bash
+pnpm launch:icecat --file data/open-icecat-export.csv --dry-run
+pnpm launch:icecat --file data/open-icecat-export.csv --thumbnails
+```
+
+`src/merchants/adapters/open-icecat.ts` verwerkt **CSV, XML en JSON**, herkent de
+gangbare Icecat-veldnamen en laat zich met `--mapping <bestand.json>` bijstellen
+wanneer jouw export andere kolommen heeft. Een rij wordt alleen een product met:
+
+- een EAN, of anders een bron-id van Icecat;
+- een merk en een model;
+- minimaal vijf bruikbare specificaties (prijsachtige velden tellen niet mee, want
+  een adviesprijs is geen winkelprijs);
+- een afbeelding met een vastgelegde gebruiksgrondslag;
+- een categorie die via `src/lib/launch/catalogue.ts` bij deze site past.
+
+Wat afvalt, wordt per reden geteld en gemeld. Producten komen binnen als
+`CANDIDATE` met `imageStatus = PENDING`, precies zoals bij een feed: de
+afbeeldingsvalidatie en de contentgeneratie beslissen daarna. Van elke afbeelding
+worden de bron-URL, de grondslag en de bronvermelding opgeslagen; die vermelding
+staat op de productpagina onder "Waar deze gegevens vandaan komen".
+
+Levert je account een export-URL in plaats van een bestand, dan kan dat ook, met
+de sleutel uit een environment-variabele en nooit op de opdrachtregel:
+
+```bash
+OPEN_ICECAT_TOKEN=... pnpm launch:icecat --url "https://…/export.json" --format json --auth-env OPEN_ICECAT_TOKEN
+```
+
+Met `--thumbnails` wordt van elke toegestane afbeelding een lokale webp gemaakt in
+`public/catalog`, zodat de staging snel is en niet van een externe host afhangt.
+
+### Stap 2: prijzen importeren
+
+```bash
+cp templates/launch-offers.csv data/launch-offers.csv   # en vul hem
+pnpm launch:offers --file data/launch-offers.csv --dry-run
+pnpm launch:offers --file data/launch-offers.csv
+```
+
+Regels die het script afdwingt: een prijs zonder `priceCheckedAt` wordt geweigerd,
+een van-prijs moet hoger zijn dan de actuele prijs, en bij een van-prijs hoort
+altijd een `referencePriceType`. Elke rij levert ook een prijsmeting, zodat de
+prijsanalyse later met echte historie rekent. Een handmatig gecontroleerde prijs
+wordt als zodanig opgeslagen (`Offer.priceCheckMethod = MANUAL`) en staat zo ook
+op de productpagina.
+
+**DEAL of DISCOVERY** volgt hier automatisch uit:
+
+| Situatie | Resultaat op de site |
+| --- | --- |
+| geen offerrij | DISCOVERY: afbeelding en tekst, geen prijs, geen CTA |
+| offer zonder van-prijs | DISCOVERY: prijs en CTA "Bekijk product bij …", geen streepprijs, geen percentage |
+| offer met geldige hogere van-prijs, recent gecontroleerd en op voorraad | DEAL: prijs, van-prijs, korting en dealknop |
+
+### Stap 3: publiceren en pagina's vullen
+
+```bash
+pnpm job:images --all      # afbeeldingen valideren
+pnpm job:content           # redactionele concepten uit de specificaties
+pnpm job:daily             # promoveren, prijsanalyse, editie
+pnpm launch:editorial      # de zes voorbeeldpagina's
+pnpm launch:report         # hoe vol de catalogus per cluster is
+```
+
+`pnpm launch:editorial` bouwt zes pagina's uit de geïmporteerde catalogus. Elke
+pagina krijgt haar criteriumwaarden uit de specificaties; wat een specificatie niet
+levert, wordt zichtbaar "Niet opgegeven". Een budgetpagina neemt alleen producten
+mee met een recent gecontroleerde prijs binnen de grens, en haalt de selectie het
+minimum van haar archetype niet, dan blijft de pagina `DRAFT` met de reden erbij.
+
+Met `pnpm launch:hide-fixtures` verdwijnen de acht demo-merchants uit de zichtbare
+catalogus, zodat er geen getekende demo-illustraties tussen de echte
+productfoto's staan. `--restore` zet ze terug.
+
+### Later: koppelen aan een affiliatefeed
+
+De catalogus is op EAN gebouwd, en dat is precies waarop een affiliatefeed
+matcht. Komt er later een feed van bol.com, Awin, Daisycon of TradeTracker, dan
+krijgt hetzelfde product een extra aanbieding: `Product.id`, de slug, de
+redactionele tekst, de SEO-velden en de bewaarde producten blijven ongewijzigd, en
+`/go/[offerId]` gebruikt de affiliatelink zodra `AFFILIATE_LINKS_ENABLED=true`
+staat en anders de gewone winkel-URL.

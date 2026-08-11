@@ -203,6 +203,8 @@ function toDetailView(
       priceDataSince: analysis?.firstSeenAt ?? null,
       merchantCount: new Set(usableOffers.map((offer) => offer.merchant.id)).size,
       experienceType: product.experienceType,
+      priceCheckMethod: best?.offer.priceCheckMethod ?? null,
+      imageAttribution: product.imageAttribution,
     },
     offers: usableOffers
       .map((offer) => ({

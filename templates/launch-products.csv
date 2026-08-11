@@ -1,0 +1,3 @@
+ean_upcs,icecat_id,title,supplier,prod_id,category,highpic,highpicwidth,highpicheight,limited,supplier_url,spec:Inhoud,spec:Vermogen,spec:Afmetingen,spec:Materiaal,spec:Gewicht,spec:Garantie
+8712345678901,1234567,Voorbeeldmerk VP-38 stoomoven met kerntemperatuurmeter,Voorbeeldmerk,VP-38,Ovens,https://images.icecat.biz/img/gallery/1234567_stoomoven.jpg,1500,1500,No,https://voorbeeldmerk.nl,38 liter,1800 W,54 x 42 x 35 cm,gebord staal,32 kg,2 jaar
+8798765432109,9876543,Voorbeeldmerk RS-500 robotstofzuiger met dweilfunctie,Voorbeeldmerk,RS-500,Robotstofzuigers,https://images.icecat.biz/img/gallery/9876543_robotstofzuiger.jpg,1200,1200,No,https://voorbeeldmerk.nl,0.4 liter,55 W,34 x 34 x 9 cm,kunststof,3.6 kg,2 jaar

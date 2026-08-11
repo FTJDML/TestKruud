@@ -77,6 +77,26 @@ export function imageUpdateForExisting(
 }
 
 /**
+ * Grondslag en bronvermelding van de afbeeldingen van deze bron, zoals die in de
+ * merchantconfiguratie staan. Zonder vastgelegde grondslag blijven de velden leeg;
+ * dan is er niets om op de pagina te vermelden.
+ */
+export function imageRights(merchant: { configuration: Prisma.JsonValue }): {
+  imageUsageBasis?: string
+  imageAttribution?: string
+} {
+  const configuration = merchant.configuration
+  if (typeof configuration !== 'object' || configuration === null || Array.isArray(configuration)) return {}
+  const record = configuration as Record<string, unknown>
+  const basis = typeof record.imageUsageBasis === 'string' ? record.imageUsageBasis : null
+  const attribution = typeof record.imageAttribution === 'string' ? record.imageAttribution : null
+  return {
+    ...(basis ? { imageUsageBasis: basis } : {}),
+    ...(attribution ? { imageAttribution: attribution } : {}),
+  }
+}
+
+/**
  * Leest één merchantbron uit en werkt producten, aanbiedingen en snapshots bij.
  * Idempotent: dezelfde feed twee keer inlezen levert dezelfde database op.
  * Een mislukte run verwijdert nooit bestaande data.
@@ -210,6 +230,7 @@ export async function ingestMerchant(
             imageAlt: item.product.imageAlt,
             primaryCategory: item.product.primaryCategory,
             collections: item.product.collections ?? [],
+            ...imageRights(merchant),
             ...image,
           },
         })
@@ -232,6 +253,7 @@ export async function ingestMerchant(
             imageUrl: item.product.imageUrl,
             imageAlt: item.product.imageAlt,
             imageSourceUrl: item.product.imageUrl,
+            ...imageRights(merchant),
             // Nieuwe afbeeldingen zijn ongecontroleerd tot de image-job draait.
             imageStatus: 'PENDING',
             status,

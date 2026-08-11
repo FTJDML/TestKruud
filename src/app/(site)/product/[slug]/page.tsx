@@ -377,6 +377,17 @@ export default async function ProductPage({ params }: Props) {
             <li>
               Productgegevens: {product.sources.labels.length > 0 ? product.sources.labels.join(', ') : 'brondata van de aanbieder'}
             </li>
+            {product.sources.imageAttribution ? (
+              <li>Afbeelding: {product.sources.imageAttribution}</li>
+            ) : null}
+            {product.sources.priceCheckMethod !== null ? (
+              <li>
+                Prijscontrole:{' '}
+                {product.sources.priceCheckMethod === 'MANUAL'
+                  ? 'handmatig nagekeken op de winkelpagina, met datum en tijd hieronder'
+                  : 'automatisch uit de bron van de aanbieder'}
+              </li>
+            ) : null}
             <li>
               Prijzen laatst gecontroleerd:{' '}
               {product.sources.lastCheckedAt

@@ -114,6 +114,14 @@ export type ProductSourcesView = {
   priceDataSince: Date | null
   merchantCount: number
   experienceType: ExperienceType
+  /**
+   * Hoe de prijs is vastgesteld: door een geautomatiseerde bron of door een mens
+   * die de winkelpagina heeft nagekeken. Bij een handmatige controle staat dat op
+   * de pagina, zodat een bezoeker weet wat hij ziet.
+   */
+  priceCheckMethod: 'FEED' | 'MANUAL' | null
+  /** Bronvermelding bij de productafbeelding, wanneer die is vastgelegd. */
+  imageAttribution: string | null
 }
 
 export type EditionView = {

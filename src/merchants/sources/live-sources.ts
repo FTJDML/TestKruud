@@ -46,6 +46,11 @@ const odooDemoCatalog: LiveSource = {
   attribution: 'Odoo democatalogus (odoo/odoo, LGPL-3.0) via raw.githubusercontent.com',
   configuration: {
     listUrl: odooCatalogUrl,
+    // Grondslag en bronvermelding voor de afbeeldingen van deze bron. De ingest
+    // zet ze op elk product, zodat op de pagina te zien is waarop het gebruik
+    // rust.
+    imageUsageBasis: 'open-source-catalogus (LGPL-3.0)',
+    imageAttribution: 'Afbeelding uit de Odoo democatalogus (odoo/odoo, LGPL-3.0)',
     // De bron noteert afbeeldingen ten opzichte van de map `addons/`.
     imageBaseUrl: 'https://raw.githubusercontent.com/odoo/odoo/master/addons/',
     itemSelector: 'record[model="product.product"], record[model="product.template"]',
