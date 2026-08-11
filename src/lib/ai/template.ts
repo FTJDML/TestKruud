@@ -7,14 +7,26 @@ import type {
 import { checkContentStyle, editorialContentSchema } from '@/lib/ai/schema'
 import { truncate, wordCount } from '@/lib/utils'
 
-export const TEMPLATE_PROMPT_VERSION = 'template-2026-08-nl-1'
+export const TEMPLATE_PROMPT_VERSION = 'template-2026-08-nl-2'
+
+/** Maximale koplengte volgens de redactionele richtlijnen. */
+const HEADLINE_MAX_LENGTH = 75
 
 type CategoryVoice = {
   /** Situatie waarin het product opvalt. */
   situation: string
-  /** Waarom deze categorie leuk is om te ontdekken. */
-  angle: string
+  /**
+   * Invalshoeken voor deze categorie. Er wordt per product deterministisch één
+   * variant gekozen, zodat producten uit dezelfde categorie niet allemaal
+   * dezelfde kop krijgen.
+   */
+  angles: readonly string[]
   bestFor: string[]
+  /**
+   * Eerlijk aandachtspunt. Bewust advies in plaats van een bewering: de
+   * template kent de echte afmetingen of materialen niet en mag die niet
+   * verzinnen.
+   */
   caveat: string
   tags: string[]
 }
@@ -22,79 +34,122 @@ type CategoryVoice = {
 const voices: Record<string, CategoryVoice> = {
   'wonen-en-design': {
     situation: 'op een avond waarop je niet meer van de bank af wil',
-    angle: 'een woonobject dat er goed uitziet en ook echt iets doet',
+    angles: [
+      'een woonobject dat er goed uitziet en iets doet',
+      'een meubel dat een hoek van je huis opnieuw indeelt',
+      'een blikvanger waar bezoek naar blijft kijken',
+    ],
     bestFor: ['wie zijn interieur een accent wil geven', 'kleine woonkamers', 'liefhebbers van design'],
-    caveat: 'Reken op een fors formaat: meet je ruimte voordat je bestelt.',
+    caveat: 'Controleer de afmetingen bij de aanbieder: in een kleine ruimte valt dit anders uit.',
     tags: ['wonen', 'design', 'interieur'],
   },
   'keuken-en-apparaten': {
     situation: 'tijdens een zondagmiddag waarop koken belangrijker is dan opruimen',
-    angle: 'een apparaat dat een vertrouwd gerecht sneller of beter maakt',
+    angles: [
+      'een apparaat dat een gerecht sneller of beter maakt',
+      'keukengerei dat een vervelende klus overneemt',
+      'een aanrechtbewoner die zijn plek verdient',
+    ],
     bestFor: ['thuiskoks', 'kleine keukens', 'wie graag iets nieuws probeert'],
-    caveat: 'Het apparaat vraagt aanrechtruimte en wil na gebruik goed schoongemaakt worden.',
+    caveat: 'Bekijk bij de aanbieder hoeveel aanrechtruimte dit vraagt en hoe het schoonmaken gaat.',
     tags: ['keuken', 'koken', 'apparaten'],
   },
   'smart-home-en-tech': {
     situation: 'op het moment dat je al in bed ligt en het licht nog brandt',
-    angle: 'techniek die je huis rustiger maakt in plaats van drukker',
+    angles: [
+      'techniek die je huis rustiger maakt',
+      'een apparaat dat meedenkt en daarna niet opvalt',
+      'een slimme toevoeging die je snel weer vergeet',
+    ],
     bestFor: ['wie zijn huis stap voor stap slim maakt', 'huurwoningen', 'techliefhebbers'],
-    caveat: 'Voor de slimme functies is een stabiel wifinetwerk en een app nodig.',
+    caveat: 'Slimme functies vragen meestal een app en een stabiel netwerk; check de eisen bij de aanbieder.',
     tags: ['smart home', 'techniek', 'gemak'],
   },
   'gaming-en-entertainment': {
     situation: 'op een vrijdagavond waarop de bank een bioscoop moet worden',
-    angle: 'entertainment dat je kamer meteen anders laat voelen',
+    angles: [
+      'entertainment dat je kamer anders laat voelen',
+      'een upgrade voor je bank of je bureau',
+      'techniek die een avond een voorstelling maakt',
+    ],
     bestFor: ['gamers', 'filmavonden', 'wie zijn werkkamer wil upgraden'],
-    caveat: 'In een lichte kamer heb je verduistering nodig om het beste beeld te krijgen.',
+    caveat: 'Beeld en geluid hangen af van je kamer; lees de specificaties van de aanbieder.',
     tags: ['gaming', 'entertainment', 'thuisbioscoop'],
   },
   'tuin-en-buitenleven': {
     situation: 'op de eerste warme avond van het jaar',
-    angle: 'buiten net zo comfortabel wonen als binnen',
+    angles: [
+      'buiten net zo comfortabel wonen als binnen',
+      'een reden om in september nog buiten te eten',
+      'een buitenobject dat je tuin een middelpunt geeft',
+    ],
     bestFor: ['balkons en kleine tuinen', 'wie vaak buiten eet', 'zomerse verjaardagen'],
-    caveat: 'Buiten betekent ook onderhoud: berg het op als het weer omslaat.',
+    caveat: 'Buiten betekent onderhoud; kijk bij de aanbieder hoe weerbestendig dit is.',
     tags: ['tuin', 'buiten', 'zomer'],
   },
   'auto-en-onderweg': {
     situation: 'halverwege een lange rit met kruimels op de achterbank',
-    angle: 'een compacte oplossing die je in het handschoenenkastje vergeet tot je haar nodig hebt',
+    angles: [
+      'een compacte oplossing voor onderweg',
+      'een kleine hulp die een lange rit korter maakt',
+      'gereedschap dat onder de bijrijdersstoel past',
+    ],
     bestFor: ['vakantieritten', 'wie zijn auto netjes houdt', 'campers en bestelbussen'],
-    caveat: 'De accu is niet oneindig; voor grotere klussen laad je tussendoor bij.',
+    caveat: 'Controleer bij de aanbieder of het formaat en de stroomvoorziening bij je auto passen.',
     tags: ['auto', 'onderweg', 'reizen'],
   },
   'speelgoed-en-hobby': {
     situation: 'op een regenachtige zaterdag met te veel tijd en te weinig plan',
-    angle: 'een project waar zowel kinderen als volwassenen in verdwijnen',
+    angles: [
+      'een project waar je een middag in verdwijnt',
+      'een bouwklus met een resultaat dat blijft staan',
+      'tijdverdrijf voor een regenachtige middag',
+    ],
     bestFor: ['cadeaus', 'regenachtige middagen', 'wie graag iets bouwt'],
-    caveat: 'Het bouwen kost een middag en vraagt geduld met de kleine onderdelen.',
+    caveat: 'Reken op wat tijd om te beginnen; de aanbieder vermeldt de inhoud en de leeftijd.',
     tags: ['hobby', 'speelgoed', 'cadeau'],
   },
   'comfort-en-gemak': {
     situation: 'op een dinsdagavond waarop je huis een klein beetje aardiger mag zijn',
-    angle: 'een kleine upgrade met een merkbaar effect op je dag',
+    angles: [
+      'een kleine upgrade met een merkbaar effect',
+      'een taak minder zonder iets nieuws te leren',
+      'comfort dat je pas mist als het weg is',
+    ],
     bestFor: ['wie thuiswerkt', 'lange avonden', 'iedereen die van gemak houdt'],
     caveat: 'Het effect is subtiel: verwacht comfort, geen wonder.',
     tags: ['comfort', 'gemak', 'thuis'],
   },
   'onnodig-maar-geweldig': {
     situation: 'op het moment dat iemand vraagt waar je dat nou weer gevonden hebt',
-    angle: 'volstrekt overbodig en precies daarom leuk',
+    angles: [
+      'volstrekt overbodig en precies daarom leuk',
+      'een aankoop die niemand kan uitleggen',
+      'een product dat bestaat omdat het kan',
+    ],
     bestFor: ['cadeaus voor wie alles heeft', 'gesprekken op visite', 'liefhebbers van gekke vondsten'],
     caveat: 'Praktisch nut is beperkt; dit is een product voor het plezier.',
     tags: ['bijzonder', 'cadeau', 'verrassend'],
   },
   cadeaus: {
     situation: 'twee dagen voor een verjaardag waarvoor je nog niets hebt',
-    angle: 'verrassend genoeg om te onthouden en praktisch genoeg om te gebruiken',
+    angles: [
+      'verrassend om te krijgen en simpel in gebruik',
+      'een cadeau dat niet in de kast verdwijnt',
+      'een attentie die een verhaal oplevert',
+    ],
     bestFor: ['verjaardagen', 'wie moeilijk te verrassen is', 'kleine attenties'],
-    caveat: 'Ga na of de maat of kleur past bij degene die het krijgt.',
+    caveat: 'Ga na of maat, kleur of smaak past bij degene die het krijgt.',
     tags: ['cadeau', 'verrassing', 'inspiratie'],
   },
 }
 
 const fallbackVoice: CategoryVoice = {
   situation: 'op een gewone avond thuis',
-  angle: 'een vondst die je dag een klein beetje leuker maakt',
+  angles: [
+    'een vondst die je dag iets leuker maakt',
+    'een product dat je niet zocht en toch bekijkt',
+  ],
   bestFor: ['nieuwsgierige kopers', 'cadeaus', 'wie iets nieuws wil proberen'],
   caveat: 'Bekijk de specificaties van de aanbieder voordat je bestelt.',
   tags: ['vondst', 'inspiratie'],
@@ -102,6 +157,29 @@ const fallbackVoice: CategoryVoice = {
 
 function voiceFor(category: string): CategoryVoice {
   return voices[categorySlugForName(category)] ?? fallbackVoice
+}
+
+/** Stabiele, kleine hash zodat dezelfde titel altijd dezelfde variant krijgt. */
+function seedFrom(text: string): number {
+  let hash = 0
+  for (const character of text) hash = (hash * 31 + character.codePointAt(0)!) % 100_003
+  return hash
+}
+
+function pickVariant<T>(items: readonly T[], seed: number): T {
+  // Niet-lege arrays: elke stem heeft minimaal twee varianten.
+  return items[seed % items.length]!
+}
+
+/**
+ * Kiest een invalshoek die met deze productnaam nog binnen de koplengte past.
+ * Zo hoeft de kop niet te worden afgekapt bij een lange brontitel.
+ */
+function pickAngle(angles: readonly string[], seed: number, name: string, maxLength: number): string {
+  const rotated = angles.map((_, index) => angles[(seed + index) % angles.length]!)
+  const fitting = rotated.find((angle) => `${name} maakt ${angle}`.length <= maxLength)
+  if (fitting) return fitting
+  return [...angles].sort((left, right) => left.length - right.length)[0]!
 }
 
 /** Voegt zinnen samen tot een tekst binnen een woordbereik. */
@@ -137,7 +215,9 @@ function subject(facts: ProductFacts): string {
  */
 export function buildTemplateContent(facts: ProductFacts): EditorialGenerationResult {
   const voice = voiceFor(facts.primaryCategory)
+  const seed = seedFrom(facts.title)
   const name = subject(facts)
+  const angle = pickAngle(voice.angles, seed, name, HEADLINE_MAX_LENGTH)
   const brand = facts.brand ? `${facts.brand} ` : ''
   const source = facts.shortSourceDescription?.trim() ?? ''
   const specEntries = Object.entries(facts.specifications ?? {}).slice(0, 3)
@@ -148,13 +228,15 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
           .join(', ')}.`
       : ''
 
-  const headline = truncate(`${name} maakt ${voice.angle}`, 75)
+  const headline = truncate(`${name} maakt ${angle}`, HEADLINE_MAX_LENGTH)
 
   const teaser = fitWords(
     [
-      `Deze ${name.toLowerCase()} valt op ${voice.situation}.`,
+      // Bewust geen "valt op": alle situatiezinnen beginnen met een
+      // voorzetsel, wat anders "valt op op een avond" oplevert.
+      `Deze ${name.toLowerCase()} bewijst zich ${voice.situation}.`,
       source.length > 0 ? `${source.replace(/\s+$/, '').replace(/\.$/, '')}.` : '',
-      `Het is ${voice.angle}, en dat merk je vooral in het dagelijks gebruik.`,
+      `Het is ${angle}, en dat merk je vooral in het dagelijks gebruik.`,
       `${facts.merchantName} levert het product; wij houden de prijs in de gaten.`,
     ].filter((sentence) => sentence.length > 0),
     45,
@@ -169,7 +251,7 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
   const longDescription = fitWords(
     [
       `Op het eerste gezicht lijkt de ${name.toLowerCase()} een gewoon product in de categorie ${facts.primaryCategory.toLowerCase()}.`,
-      `Kijk je beter, dan blijkt het ${voice.angle}.`,
+      `Kijk je beter, dan blijkt het ${angle}.`,
       source.length > 0 ? `${source.replace(/\.$/, '')}.` : '',
       specSentence,
       `Het verschil zit in het moment waarop je het gebruikt: ${voice.situation} merk je waarom dit product bestaat.`,
@@ -192,12 +274,19 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
     headline,
     teaser,
     longDescription,
-    whyItStandsOut: `${brand}${name} combineert een herkenbare vorm met een functie die je niet verwacht. Dat maakt het een product dat je zelf wil laten zien.`,
+    whyItStandsOut: pickVariant(
+      [
+        `${brand}${name} combineert een herkenbare vorm met een functie die je niet verwacht. Dat maakt het een product dat je zelf wil laten zien.`,
+        `Bij ${brand}${name} zit het verschil in het gebruik: het lost een klein probleem op waar je zelden een product voor zoekt.`,
+        `${brand}${name} valt tussen de standaardoplossingen op doordat het één ding anders aanpakt dan gebruikelijk in ${facts.primaryCategory.toLowerCase()}.`,
+      ],
+      seed,
+    ),
     bestFor: voice.bestFor,
     caveat: voice.caveat,
     seoTitle: truncate(`${name} — ${facts.primaryCategory}`, 60),
     metaDescription: truncate(
-      `${name}: ${voice.angle}. Actuele prijs bij ${facts.merchantName}, dagelijks gecontroleerd door de redactie.`,
+      `${name}: ${angle}. Actuele prijs bij ${facts.merchantName}, dagelijks gecontroleerd door de redactie.`,
       155,
     ),
     tags: [...new Set([...voice.tags, facts.primaryCategory.toLowerCase()])].slice(0, 8),

@@ -4,8 +4,10 @@
  * Deze module heeft geen imports zodat `next.config.ts` haar veilig kan lezen.
  */
 export const merchantImageHosts: readonly string[] = [
-  // Voorbeeld voor echte merchants; demo-content gebruikt lokale afbeeldingen.
+  // Voorbeeld voor echte merchants; fictieve demo-content gebruikt lokale afbeeldingen.
   'images.homeandlivingdeals.nl',
+  // Publieke bron van de open-source democatalogus (zie src/merchants/sources).
+  'raw.githubusercontent.com',
 ]
 
 export const merchantImageRemotePatterns = merchantImageHosts.map((hostname) => ({

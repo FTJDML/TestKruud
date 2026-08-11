@@ -115,6 +115,26 @@ describe('templateprovider', () => {
   it('is deterministisch', () => {
     expect(buildTemplateContent(facts).content).toEqual(buildTemplateContent(facts).content)
   })
+
+  it('geeft producten binnen dezelfde categorie niet allemaal dezelfde kop', () => {
+    const titles = [
+      'Bureaustoel met verstelbare rug',
+      'Hangende plantenbak van keramiek',
+      'Opbergkast met vier laden',
+      'Eettafel van massief eiken',
+      'Vloerlamp met linnen kap',
+      'Wandrek voor kleine boeken',
+    ]
+    const headlines = titles.map(
+      (title) => buildTemplateContent({ ...facts, title, brand: null, model: null }).content.headline,
+    )
+    expect(new Set(headlines).size).toBeGreaterThan(1)
+  })
+
+  it('beweert niets over afmetingen of materialen in het aandachtspunt', () => {
+    const result = buildTemplateContent({ ...facts, primaryCategory: 'Wonen & Design' })
+    expect(result.content.caveat).not.toMatch(/\d+\s?(cm|mm|kg|liter)/i)
+  })
 })
 
 describe('vingerafdruk van productfeiten', () => {

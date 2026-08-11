@@ -22,7 +22,7 @@ const productInclude = {
   editorial: true,
   offers: {
     orderBy: { currentPrice: 'asc' },
-    include: { merchant: { select: { name: true, domain: true, enabled: true } } },
+    include: { merchant: { select: { name: true, domain: true, enabled: true, sourceType: true } } },
   },
   _count: { select: { saves: true } },
 } satisfies Prisma.ProductInclude
@@ -119,6 +119,9 @@ function toDetailView(product: ProductWithRelations, now: Date, history: PriceHi
     priceHistory: history,
     updatedAt: product.updatedAt,
     merchantDomain: best?.offer.merchant.domain ?? '',
+    // Alleen fixturebronnen leveren verzonnen productgegevens; een ingelezen
+    // democatalogus levert echte titels, prijzen en foto's.
+    demoOrigin: best?.offer.merchant.sourceType === 'FIXTURE' ? 'fictief' : 'bron',
     offers: product.offers
       .filter((offer) => offer.merchant.enabled)
       .map((offer) => ({

@@ -23,12 +23,13 @@ Tailwind CSS 4 · PostgreSQL met Prisma 7 · Zod · Lucide · Vitest · Playwrig
 9. [Adminpaneel](#adminpaneel)
 10. [Advertenties inschakelen](#advertenties-inschakelen)
 11. [Anthropic-provider instellen](#anthropic-provider-instellen)
-12. [Nieuwe merchant toevoegen](#nieuwe-merchant-toevoegen)
-13. [Affiliate-URL's toevoegen](#affiliate-urls-toevoegen)
-14. [Demo-inhoud verwijderen](#demo-inhoud-verwijderen)
-15. [Deployment op een Linux-VPS](#deployment-op-een-linux-vps)
-16. [Projectstructuur](#projectstructuur)
-17. [Wat nodig is voor de eerste echte merchant](#wat-nodig-is-voor-de-eerste-echte-merchant)
+12. [Live bron met echte productfoto's](#live-bron-met-echte-productfotos)
+13. [Nieuwe merchant toevoegen](#nieuwe-merchant-toevoegen)
+14. [Affiliate-URL's toevoegen](#affiliate-urls-toevoegen)
+15. [Demo-inhoud verwijderen](#demo-inhoud-verwijderen)
+16. [Deployment op een Linux-VPS](#deployment-op-een-linux-vps)
+17. [Projectstructuur](#projectstructuur)
+18. [Wat nodig is voor de eerste echte merchant](#wat-nodig-is-voor-de-eerste-echte-merchant)
 
 ---
 
@@ -166,6 +167,8 @@ Nederlandse kalenderdag (`Europe/Amsterdam`).
 pnpm job:daily                 # volledige pipeline
 pnpm job:ingest                # alleen bronnen uitlezen
 pnpm job:ingest demo-kookkamer # één merchant
+pnpm job:content               # ontbrekende of gewijzigde teksten aanvullen
+pnpm job:content --force       # alles opnieuw, bijvoorbeeld na een nieuwe sjabloonversie
 ```
 
 Een mislukte run verwijdert nooit bestaande producten of de vorige editie: de
@@ -250,6 +253,48 @@ terugval op templatecontent. Prijzen en kortingen worden altijd door de
 applicatie berekend, nooit door het model. Een Enterprise-login is geen
 productie-API-key: gebruik een echte API-key uit de Anthropic Console.
 
+## Live bron met echte productfoto's
+
+Naast de fictieve demo-fixtures staat er één bron in `src/merchants/sources/live-sources.ts`
+die daadwerkelijk over HTTP wordt ingelezen, zodat de hele keten — fetch,
+parsing, normalisatie, deduplicatie, `ScrapeRun`, `next/image` — met echte data
+en echte foto's te controleren is.
+
+| | |
+| --- | --- |
+| Merchant | `odoo-democatalogus` |
+| Bron | `https://raw.githubusercontent.com/odoo/odoo/master/addons/product/data/product_demo.xml` |
+| Adapter | `HTML` (Cheerio, selectors in `Merchant.configuration`) |
+| Herkomst | democatalogus van Odoo (`odoo/odoo`, LGPL-3.0), foto's op `raw.githubusercontent.com` |
+| Resultaat | 27 producten met echte titels, prijzen en productfoto's |
+
+Waarom dit mag: het gaat om publieke, open gelicentieerde broncode op de
+ongeauthenticeerde CDN van GitHub. Er wordt niets omzeild, geen anti-bot, geen
+browser, één GET per run, met de user-agent uit `SCRAPER_USER_AGENT`. Er wordt
+geen Nederlandse winkel gescraped: dat mag alleen met expliciete toestemming en
+staat daarom uit (`scrapingAllowed = false` voor alle andere merchants).
+
+Wat deze bron bewust **niet** doet:
+
+- **Geen referentieprijs.** De bron levert alleen een actuele prijs. Er wordt
+  geen was-prijs verzonnen, dus deze producten krijgen geen kortingspercentage
+  en komen niet in de dagelijkse deal-editie. Ze zijn wel te zien op `/nieuw`,
+  in de categorie, in de zoekresultaten en op hun eigen productpagina.
+- **Niet te koop.** `markAsDemo` staat aan: de producten dragen het label
+  "Demo", zijn `noindex` en de knop verwijst naar de bronpagina in plaats van
+  naar een winkel. De demo-melding op de productpagina zegt dit letterlijk en
+  verschilt van de melding bij de verzonnen fixtures.
+- **Geen Nederlandse brontekst.** Titels en de regel achter "Brondata" komen
+  onbewerkt uit de bron; de Nederlandse tekst eromheen komt van de
+  contentprovider en staat op `NEEDS_REVIEW` tot de redactie haar nakijkt.
+
+Opnieuw uitlezen of verwijderen:
+
+```bash
+pnpm job:ingest odoo-democatalogus
+psql "$DATABASE_URL" -c $'UPDATE "Merchant" SET enabled = false WHERE slug = \'odoo-democatalogus\';'
+```
+
 ## Nieuwe merchant toevoegen
 
 1. **Adapter kiezen.** Er zijn adapters voor `FIXTURE`, `JSON`, `CSV` en `HTML`.
@@ -306,8 +351,10 @@ VALUES (gen_random_uuid(), 'Voorbeeldwinkel', 'voorbeeldwinkel', 'voorbeeldwinke
 ```json
 {
   "listUrl": "https://voorbeeldwinkel.nl/aanbiedingen",
+  "imageBaseUrl": "https://cdn.voorbeeldwinkel.nl/",
   "itemSelector": "li.product",
   "requiresBrowser": false,
+  "markAsDemo": false,
   "fields": {
     "title": { "selector": "h2" },
     "price": { "selector": ".price" },
@@ -318,6 +365,13 @@ VALUES (gen_random_uuid(), 'Voorbeeldwinkel', 'voorbeeldwinkel', 'voorbeeldwinke
   }
 }
 ```
+
+Optioneel bij de HTML-adapter: `imageBaseUrl` lost relatieve afbeeldingspaden op
+tegen een andere basis dan `listUrl`, `fields.url` mag ontbreken (dan verwijst de
+knop naar `listUrl`) en `markAsDemo` markeert alles uit deze bron als
+demo-inhoud met `noindex`. Zet `autoPublish: true` in de configuratie alleen
+wanneer nieuwe producten zonder handmatige goedkeuring online mogen; standaard
+komen ze als `CANDIDATE` in `/admin/producten`.
 
 4. **Afbeeldingsdomein toestaan** in `src/merchants/image-hosts.ts` (centrale
    lijst voor `next/image`).
@@ -350,6 +404,7 @@ echo 'SEED_DEMO_CONTENT="false"' >> .env
 # 2. Bestaande demo-data verwijderen (producten, aanbiedingen en editie-items)
 psql "$DATABASE_URL" -c 'DELETE FROM "Product" WHERE "isDemo" = true;'
 psql "$DATABASE_URL" -c $'DELETE FROM "Merchant" WHERE slug LIKE \'demo-%\';'
+psql "$DATABASE_URL" -c $'DELETE FROM "Merchant" WHERE slug = \'odoo-democatalogus\';'
 
 # 3. Nieuwe editie samenstellen uit echte producten
 pnpm job:daily
@@ -417,8 +472,9 @@ src/
   merchants/
     adapters/           fixture, json-feed, csv-feed, html, registry
     fixtures/           demo-merchants en demo-producten
+    sources/            live bron(nen) die echt over HTTP worden ingelezen
     schemas/            Zod-schema's voor feedconfiguratie
-  jobs/                daily, ingest en de gedeelde pipeline
+  jobs/                daily, ingest, content en de gedeelde pipeline
   types/               view-modellen
 prisma/                schema, migraties, seed
 public/demo/           originele SVG-illustraties voor demo-producten

@@ -84,7 +84,7 @@ export default async function ProductPage({ params }: Props) {
 
             {product.isDemo ? (
               <div className="mt-4">
-                <DemoNotice />
+                <DemoNotice origin={product.demoOrigin} sourceName={product.merchantName} />
               </div>
             ) : null}
           </div>

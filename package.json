@@ -23,6 +23,7 @@
     "db:reset": "prisma migrate reset --force",
     "job:daily": "tsx src/jobs/daily.ts",
     "job:ingest": "tsx src/jobs/ingest.ts",
+    "job:content": "tsx src/jobs/content.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {

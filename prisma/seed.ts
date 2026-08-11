@@ -2,13 +2,15 @@ import '../src/lib/load-env'
 import { prisma } from '../src/lib/database/client'
 import { serverEnv } from '../src/lib/env'
 import { demoMerchants } from '../src/merchants/fixtures/demo-merchants'
+import { liveSources } from '../src/merchants/sources/live-sources'
 import { generateMissingContent } from '../src/jobs/lib/content'
 import { ingestMerchant } from '../src/jobs/lib/ingest'
 import { publishDailyEdition } from '../src/jobs/lib/publish-edition'
 
 /**
- * Seed: demo-merchants, demo-producten (isDemo, noindex), redactionele
- * fixturecontent en één gepubliceerde editie voor vandaag.
+ * Seed: demo-merchants met fictieve demo-producten (isDemo, noindex), de live
+ * bron(nen) uit src/merchants/sources die echt over HTTP worden ingelezen,
+ * redactionele fixturecontent en één gepubliceerde editie voor vandaag.
  *
  * Testfixtures (saves en clicks) komen hier nooit in; die staan in
  * tests/fixtures en worden alleen door tests gebruikt.
@@ -44,14 +46,48 @@ async function main(): Promise<void> {
   }
   console.info(`${demoMerchants.length} demo-merchants klaargezet.`)
 
-  const merchants = await prisma.merchant.findMany({ where: { sourceType: 'FIXTURE' } })
+  for (const source of liveSources) {
+    await prisma.merchant.upsert({
+      where: { slug: source.slug },
+      create: {
+        slug: source.slug,
+        name: source.name,
+        domain: source.domain,
+        sourceType: source.sourceType,
+        enabled: true,
+        scrapingAllowed: source.scrapingAllowed,
+        trustScore: source.trustScore,
+        feedUrl: source.feedUrl,
+        configuration: source.configuration,
+      },
+      update: {
+        name: source.name,
+        domain: source.domain,
+        sourceType: source.sourceType,
+        scrapingAllowed: source.scrapingAllowed,
+        trustScore: source.trustScore,
+        feedUrl: source.feedUrl,
+        configuration: source.configuration,
+        enabled: true,
+      },
+    })
+  }
+  console.info(`${liveSources.length} live bron(nen) klaargezet.`)
+
+  const merchants = await prisma.merchant.findMany({
+    where: { sourceType: { in: ['FIXTURE', 'HTML', 'JSON', 'CSV'] }, enabled: true },
+    orderBy: { slug: 'asc' },
+  })
   let created = 0
   for (const merchant of merchants) {
+    // Een live bron kan onbereikbaar zijn (bijvoorbeeld zonder internet). De
+    // seed loopt dan door: ingestMerchant logt de mislukte run en laat
+    // bestaande data staan.
     const summary = await ingestMerchant(prisma, merchant)
     created += summary.productsCreated
     if (summary.error) console.warn(`Let op (${merchant.slug}): ${summary.error}`)
   }
-  console.info(`${created} demo-producten aangemaakt.`)
+  console.info(`${created} producten aangemaakt.`)
 
   const content = await generateMissingContent(prisma)
   console.info(

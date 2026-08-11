@@ -62,6 +62,12 @@ export const htmlSelectorSchema = z.object({
 
 export const htmlConfigSchema = z.object({
   listUrl: z.string().url(),
+  /**
+   * Basis voor relatieve afbeeldingspaden. Zonder deze waarde worden paden
+   * opgelost ten opzichte van `listUrl`; sommige bronnen geven paden ten
+   * opzichte van een andere map of een CDN-root.
+   */
+  imageBaseUrl: z.string().url().optional(),
   itemSelector: z.string().min(1),
   fields: z.object({
     externalId: htmlSelectorSchema.optional(),
@@ -69,7 +75,8 @@ export const htmlConfigSchema = z.object({
     price: htmlSelectorSchema,
     referencePrice: htmlSelectorSchema.optional(),
     referencePriceType: z.enum(referencePriceTypes).default('MERCHANT_WAS_PRICE'),
-    url: htmlSelectorSchema,
+    /** Optioneel: bronnen zonder losse productlink vallen terug op `listUrl`. */
+    url: htmlSelectorSchema.optional(),
     imageUrl: htmlSelectorSchema,
     brand: htmlSelectorSchema.optional(),
     category: htmlSelectorSchema.optional(),
@@ -80,6 +87,12 @@ export const htmlConfigSchema = z.object({
   defaultCurrency: z.string().length(3).default('EUR'),
   /** Gebruik een browser voor bronnen die JavaScript nodig hebben. */
   requiresBrowser: z.boolean().default(false),
+  /**
+   * Zet `isDemo` op alles uit deze bron. Bedoeld voor preview- en
+   * democatalogi: de producten zijn niet te koop, krijgen een demo-melding en
+   * worden nooit geïndexeerd.
+   */
+  markAsDemo: z.boolean().default(false),
 })
 
 export type JsonFeedConfig = z.infer<typeof jsonFeedConfigSchema>

@@ -75,10 +75,14 @@ export const htmlAdapter: MerchantAdapter = {
       const item: CheerioSelection = $(element)
       const title = extract(item, config.fields.title)
       const priceCents = normalizePriceCents(extract(item, config.fields.price))
-      const destinationUrl = normalizeUrl(extract(item, config.fields.url), config.listUrl)
-      const imageUrl = normalizeUrl(extract(item, config.fields.imageUrl), config.listUrl)
+      // Bronnen zonder losse productlink verwijzen naar de overzichtspagina.
+      const destinationUrl = normalizeUrl(extract(item, config.fields.url), config.listUrl) ?? config.listUrl
+      const imageUrl = normalizeUrl(
+        extract(item, config.fields.imageUrl),
+        config.imageBaseUrl ?? config.listUrl,
+      )
 
-      if (!title || priceCents === null || priceCents <= 0 || !destinationUrl || !imageUrl) {
+      if (!title || priceCents === null || priceCents <= 0 || !imageUrl) {
         warnings.push(`item overgeslagen: ontbrekende titel, prijs, URL of afbeelding (${title ?? 'onbekend'})`)
         continue
       }
@@ -103,7 +107,7 @@ export const htmlAdapter: MerchantAdapter = {
           specifications: {},
           imageUrl,
           imageAlt: title,
-          isDemo: false,
+          isDemo: config.markAsDemo,
           collections: [],
         },
         offer: {

@@ -1,4 +1,5 @@
 import type { DealPricing } from '@/lib/pricing/deal'
+import type { DemoOrigin } from '@/components/ui/DemoNotice'
 
 export type BadgeTone = 'accent' | 'deal' | 'neutral'
 
@@ -51,6 +52,11 @@ export type ProductDetailView = ProductCardView & {
   priceHistory: PriceHistoryPoint[]
   updatedAt: Date
   merchantDomain: string
+  /**
+   * Herkomst van demo-inhoud: fictieve fixtures of een echt ingelezen open
+   * catalogus. Bepaalt welke demo-melding klopt op de productpagina.
+   */
+  demoOrigin: DemoOrigin
   /** Alle aanbiedingen, gesorteerd op prijs. */
   offers: Array<{
     offerId: string
