@@ -400,6 +400,20 @@ async function main() {
     )
   }
 
+  /**
+   * De eerste pagina krijgt haar afbeeldingen rechtstreeks in `src`.
+   *
+   * Alle andere pagina's halen hun afbeelding uit de ingesloten map, want anders
+   * zou dezelfde foto in tientallen pagina's opnieuw in het bestand staan. Maar
+   * de eerste pagina moet ook zonder werkend script iets echts laten zien: HTML
+   * en foto's, zonder dat er eerst code hoeft te lopen.
+   */
+  const home = withImageIds.find((entry) => entry.key === '/')
+  const homeHtml = (home?.html ?? '').replace(
+    /data-img="(i\d+)"/g,
+    (match, id) => `data-img="${id}" src="${images[id] ?? fallback}"`,
+  )
+
   const payload = {
     pages: withImageIds,
     images,
@@ -411,7 +425,7 @@ async function main() {
     home: '/',
   }
 
-  const html = shell(`${stylesheet}\n:root{${fontVariables}}`, payload)
+  const html = shell(`${stylesheet}\n:root{${fontVariables}}`, payload, homeHtml)
   await mkdir(dirname(out), { recursive: true })
   await writeFile(out, html, 'utf8')
   console.info(`${out} geschreven (${(Buffer.byteLength(html) / 1024 / 1024).toFixed(2)} MB).`)
@@ -421,7 +435,7 @@ async function main() {
  * De pagina zelf: alleen de site, met de shims eronder. Bewust zonder eigen
  * navigatie, balk of keuzelijst: wat je ziet is de applicatie.
  */
-function shell(stylesheet, payload) {
+function shell(stylesheet, payload, homeHtml) {
   // Elke "<" wordt een JSON-escape. Zo kan er in de data geen `</script>` of
   // `<!--` staan dat de parser van de pagina in de war brengt.
   const json = JSON.stringify(payload).replace(/</g, '\\u003C')
@@ -441,7 +455,7 @@ function shell(stylesheet, payload) {
   #site { container-type: inline-size; width: 100%; }
 </style>
 
-<div id="site" class="${escapeHtml(payload.rootClass)}"></div>
+<div id="site" class="${escapeHtml(payload.rootClass)}">${homeHtml}</div>
 
 <script id="staging-data" type="application/json">${json}</script>
 <script>
@@ -451,14 +465,55 @@ function shell(stylesheet, payload) {
     const byKey = new Map(data.pages.map((page) => [page.key, page]))
     const saved = new Set()
 
+    /**
+     * Een tweede weg naar dezelfde bytes.
+     *
+     * De afbeeldingen zitten als data-URI in dit bestand. Weigert de omgeving
+     * waarin deze pagina staat data-URI's, dan is het beeld leeg terwijl de
+     * bytes er wel zijn. Daarom wordt bij een laadfout dezelfde afbeelding als
+     * blob opnieuw aangeboden.
+     */
+    const blobCache = new Map()
+    function blobUrl(dataUri) {
+      if (blobCache.has(dataUri)) return blobCache.get(dataUri)
+      let url = ''
+      try {
+        const comma = dataUri.indexOf(',')
+        const type = dataUri.slice(5, dataUri.indexOf(';'))
+        const binary = atob(dataUri.slice(comma + 1))
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+        url = URL.createObjectURL(new Blob([bytes], { type }))
+      } catch {
+        url = ''
+      }
+      blobCache.set(dataUri, url)
+      return url
+    }
+
     /** Afbeeldingen komen uit de ingesloten map; anders de eigen fallback. */
     function hydrateImages(root) {
       root.querySelectorAll('img[data-img]').forEach((img) => {
         const id = img.getAttribute('data-img')
-        img.src = data.images[id] || data.fallback
+        const source = data.images[id] || data.fallback
+        let stage = 0
         img.addEventListener('error', () => {
-          if (img.src !== data.fallback) img.src = data.fallback
+          stage += 1
+          // Eerst dezelfde bytes als blob, en pas daarna de eigen fallback.
+          if (stage === 1) {
+            const alternative = blobUrl(source)
+            if (alternative) {
+              img.src = alternative
+              return
+            }
+            stage += 1
+          }
+          if (stage === 2) {
+            const alternative = blobUrl(data.fallback)
+            img.src = alternative || data.fallback
+          }
         })
+        img.src = source
       })
     }
 
@@ -585,10 +640,19 @@ function shell(stylesheet, payload) {
       wireMenu(site)
       wireForms(site)
       if (typed) replaceQuery(site, typed)
-      if (location.hash !== '#' + page.key) history.replaceState(null, '', '#' + page.key)
-      // Deze pagina kan in een frame staan; scrollIntoView werkt daar ook, want
-      // het scrollt de bovenliggende pagina mee. window.scrollTo doet dat niet.
-      site.scrollIntoView({ block: 'start' })
+      try {
+        if (location.hash !== '#' + page.key) history.replaceState(null, '', '#' + page.key)
+      } catch {
+        // Een pagina in een frame met een eigen oorsprong mag de URL niet altijd
+        // aanpassen. Navigeren binnen de opname werkt dan gewoon door.
+      }
+      try {
+        // Deze pagina kan in een frame staan; scrollIntoView werkt daar ook, want
+        // het scrollt de bovenliggende pagina mee. window.scrollTo doet dat niet.
+        site.scrollIntoView({ block: 'start' })
+      } catch {
+        window.scrollTo(0, 0)
+      }
     }
 
     window.addEventListener('hashchange', () => {
@@ -597,7 +661,19 @@ function shell(stylesheet, payload) {
     })
 
     const initial = decodeURIComponent(location.hash.replace(/^#/, ''))
-    go(byKey.has(initial) ? initial : data.home)
+    if (byKey.has(initial) && initial !== data.home) {
+      go(initial)
+    } else {
+      // De eerste pagina staat al in de HTML, met haar afbeeldingen in src. Die
+      // wordt niet opnieuw opgebouwd; alleen de interactie wordt aangesloten.
+      hydrateImages(site)
+      wireLinks(site)
+      wireHearts(site)
+      wireMenu(site)
+      wireForms(site)
+      const page = byKey.get(data.home)
+      document.title = page && page.title ? page.title : document.title
+    }
   })()
 </script>
 `
