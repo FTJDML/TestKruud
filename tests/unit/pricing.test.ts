@@ -21,6 +21,14 @@ describe('prijsparsing', () => {
     expect(toCents({ toString: () => '299.00' })).toBe(29_900)
   })
 
+  it('leest dezelfde prijs uit verschillende schrijfwijzen', () => {
+    // De ingest vergelijkt prijzen in centen; anders zou "70" naast "70.00" als
+    // een prijswijziging tellen en kreeg elke run een identiek snapshot.
+    expect(toCents('70')).toBe(toCents('70.00'))
+    expect(toCents('70,00')).toBe(toCents('70.00'))
+    expect(toCents('1799')).toBe(toCents('1799.00'))
+  })
+
   it('weigert onbruikbare invoer', () => {
     expect(toCents('')).toBeNull()
     expect(toCents('op aanvraag')).toBeNull()

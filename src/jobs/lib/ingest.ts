@@ -3,7 +3,7 @@ import { adapterFor } from '@/merchants/adapters'
 import type { AdapterContext, NormalizedItem } from '@/merchants/types'
 import { findDuplicate, normalizeTitle, type DedupeCandidate } from '@/lib/deals/dedupe'
 import { STALE_AFTER_MS } from '@/lib/pricing/deal'
-import { centsToDecimalString } from '@/lib/pricing/money'
+import { centsToDecimalString, toCents } from '@/lib/pricing/money'
 import { errorMessage, logger } from '@/lib/logger'
 import { uniqueSlug } from '@/lib/utils'
 
@@ -206,9 +206,11 @@ export async function ingestMerchant(
         orderBy: { capturedAt: 'desc' },
         select: { price: true, inStock: true },
       })
+      // Numeriek vergelijken: "70" en "70.00" zijn dezelfde prijs. Anders zou
+      // elke run een identiek snapshot toevoegen en was de job niet idempotent.
       const priceChanged =
         !previous ||
-        previous.price.toString() !== offerData.currentPrice ||
+        toCents(previous.price.toString()) !== item.offer.currentPriceCents ||
         previous.inStock !== offerData.inStock
       if (priceChanged) {
         await prisma.priceSnapshot.create({
