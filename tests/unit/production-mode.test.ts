@@ -7,6 +7,7 @@ import {
   searchEngineIndexingEnabled,
   serverEnv,
   shouldSeedDemoContent,
+  stagingMode,
 } from '@/lib/env'
 import { isDemoMerchant, liveSources } from '@/merchants/sources/live-sources'
 import { redactFields } from '@/lib/logger'
@@ -25,6 +26,7 @@ const keys = [
   'ADMIN_SESSION_SECRET',
   'CONTENT_PROVIDER',
   'ANTHROPIC_API_KEY',
+  'STAGING_MODE',
 ] as const
 
 const original = new Map<string, string | undefined>()
@@ -83,6 +85,25 @@ describe('draaimodi', () => {
   it('laat test-modus demo-inhoud gebruiken', () => {
     setEnv({ APP_ENV: 'test', DEMO_CONTENT_ENABLED: undefined })
     expect(demoContentEnabled()).toBe(true)
+  })
+})
+
+describe('stagingmodus', () => {
+  it('staat standaard uit', () => {
+    setEnv({ APP_ENV: undefined, STAGING_MODE: undefined })
+    expect(stagingMode()).toBe(false)
+  })
+
+  it('gaat aan met STAGING_MODE buiten productie', () => {
+    setEnv({ APP_ENV: 'development', STAGING_MODE: 'true' })
+    expect(stagingMode()).toBe(true)
+  })
+
+  it('blijft uit in productie, ook wanneer de variabele aan staat', () => {
+    // Een productiebezoeker mag nooit een stagingmelding zien, en de uitgaande
+    // link mag daar nooit op een interne pagina eindigen.
+    setEnv({ ...completeProduction(), STAGING_MODE: 'true' })
+    expect(stagingMode()).toBe(false)
   })
 })
 

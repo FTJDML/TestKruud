@@ -39,6 +39,12 @@ const serverSchema = z.object({
   SEARCH_ENGINE_INDEXING_ENABLED: flag,
   ADS_ENABLED: flag,
   AFFILIATE_LINKS_ENABLED: flag,
+  /**
+   * Stagingmodus: toont een duidelijke melding bovenaan en laat uitgaande links
+   * niet naar een winkel gaan, maar naar een interne uitlegpagina. Bedoeld voor
+   * een tijdelijke omgeving met voorbeelddata; in productie altijd uit.
+   */
+  STAGING_MODE: flag,
   /** Draaiuur (0-23, Europe/Amsterdam) van de worker; zie src/jobs/worker.ts. */
   WORKER_DAILY_HOUR: z.coerce.number().int().min(0).max(23).default(6),
   WORKER_DAILY_MINUTE: z.coerce.number().int().min(0).max(59).default(15),
@@ -69,12 +75,14 @@ type RawServerEnv = z.infer<typeof serverSchema>
 export type ServerEnv = Omit<
   RawServerEnv,
   | 'SCRAPER_ALLOW_BROWSER'
+  | 'STAGING_MODE'
   | 'DEMO_CONTENT_ENABLED'
   | 'SEARCH_ENGINE_INDEXING_ENABLED'
   | 'ADS_ENABLED'
   | 'AFFILIATE_LINKS_ENABLED'
 > & {
   SCRAPER_ALLOW_BROWSER: boolean
+  STAGING_MODE: boolean
   DEMO_CONTENT_ENABLED: boolean
   SEARCH_ENGINE_INDEXING_ENABLED: boolean
   ADS_ENABLED: boolean
@@ -89,6 +97,8 @@ function resolve(raw: RawServerEnv): ServerEnv {
   return {
     ...raw,
     SCRAPER_ALLOW_BROWSER: yes(raw.SCRAPER_ALLOW_BROWSER, false),
+    // Staging is nooit de standaard, en in productie nooit aan.
+    STAGING_MODE: !isProduction && yes(raw.STAGING_MODE, false),
     // Demo-inhoud hoort bij development en test, nooit standaard bij productie.
     DEMO_CONTENT_ENABLED: yes(raw.DEMO_CONTENT_ENABLED, !isProduction),
     // Indexeren is een bewuste keuze; standaard staat de site op noindex.
@@ -133,6 +143,15 @@ export function adsEnabled(): boolean {
 
 export function affiliateLinksEnabled(): boolean {
   return serverEnv().AFFILIATE_LINKS_ENABLED
+}
+
+/**
+ * Stagingmodus. Voegt de melding bovenaan toe en laat `/go/[offerId]` een interne
+ * uitlegpagina tonen in plaats van door te sturen naar een winkel. Staat in
+ * productie altijd uit, ook wanneer de variabele op "true" staat.
+ */
+export function stagingMode(): boolean {
+  return serverEnv().STAGING_MODE
 }
 
 /**

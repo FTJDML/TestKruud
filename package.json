@@ -21,6 +21,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:editorial": "tsx prisma/seed-editorial.ts",
+    "db:seed:staging": "STAGING_MODE=true DEMO_CONTENT_ENABLED=true tsx prisma/seed-staging.ts",
     "db:reset": "prisma migrate reset --force",
     "job:daily": "tsx src/jobs/daily.ts",
     "job:ingest": "tsx src/jobs/ingest.ts",
@@ -30,6 +31,7 @@
     "job:images": "tsx src/jobs/images.ts",
     "job:worker": "tsx src/jobs/worker.ts",
     "db:seed:demo": "APP_ENV=development DEMO_CONTENT_ENABLED=true tsx prisma/seed.ts",
+    "staging:artifact": "node scripts/build-staging-artifact.mjs",
     "db:backup": "./scripts/backup-database.sh",
     "db:restore": "./scripts/restore-database.sh",
     "postinstall": "prisma generate"

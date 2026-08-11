@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/database/client'
 import { computeDealPricing } from '@/lib/pricing/deal'
 import { isSafeDestination, resolveDestination } from '@/lib/deals/outbound'
-import { affiliateLinksEnabled } from '@/lib/env'
+import { affiliateLinksEnabled, stagingMode } from '@/lib/env'
 import { linkBuilderFor } from '@/lib/affiliate/networks'
 import { affiliateConfigSchema } from '@/lib/affiliate/types'
 import { safeSubId } from '@/lib/affiliate/subid'
@@ -32,7 +32,9 @@ export async function GET(request: Request, context: { params: Promise<{ offerId
     where: { id: offerId },
     include: {
       product: { select: { id: true, slug: true, status: true } },
-      merchant: { select: { id: true, slug: true, enabled: true, affiliateNetwork: true, configuration: true } },
+      merchant: {
+        select: { id: true, slug: true, name: true, enabled: true, affiliateNetwork: true, configuration: true },
+      },
     },
   })
 
@@ -44,6 +46,16 @@ export async function GET(request: Request, context: { params: Promise<{ offerId
   if (!pricing.isActive) {
     // Verlopen of uitverkocht: terug naar de productpagina met de uitleg daar.
     return NextResponse.redirect(new URL(`/product/${offer.product.slug}`, request.url), 307)
+  }
+
+  if (stagingMode()) {
+    // In staging bestaat er geen klik naar buiten: wij bouwen geen affiliatelink,
+    // registreren geen uitgaande klik en openen geen winkel. De bezoeker krijgt een
+    // interne pagina die vertelt welke aanbieder hier in productie zou openen.
+    const notice = new URL('/staging/uitgaand', request.url)
+    notice.searchParams.set('merchant', offer.merchant.name)
+    notice.searchParams.set('product', offer.product.slug)
+    return NextResponse.redirect(notice, 307)
   }
 
   const withAffiliate = affiliateLinksEnabled()

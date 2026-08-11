@@ -39,6 +39,7 @@ Tailwind CSS 4 · PostgreSQL met Prisma 7 · Zod · Lucide · Vitest · Playwrig
 25. [Demo-inhoud uitzetten](#demo-inhoud-uitzetten)
 26. [Projectstructuur](#projectstructuur)
 27. [Wat nodig is voor de eerste echte merchant](#wat-nodig-is-voor-de-eerste-echte-merchant)
+28. [Stagingomgeving en statische opname](#stagingomgeving-en-statische-opname)
 
 ---
 
@@ -81,7 +82,7 @@ is daarom altijd een expliciete keuze.
 | Advertentieposities | placeholder in de pagina | geen | alleen met `ADS_ENABLED=true` |
 | Ontbrekende secrets | waarschuwing in de log | idem | **app start niet** |
 
-Vier vlaggen, allemaal `"true"` of `"false"`:
+Vijf vlaggen, allemaal `"true"` of `"false"`:
 
 | Vlag | Standaard | Effect |
 | --- | --- | --- |
@@ -89,6 +90,7 @@ Vier vlaggen, allemaal `"true"` of `"false"`:
 | `SEARCH_ENGINE_INDEXING_ENABLED` | uit | Uit betekent: de hele site krijgt `noindex, nofollow`, `robots.txt` blokkeert alles en de sitemap is leeg. Zet pas aan bij de echte livegang. |
 | `ADS_ENABLED` | uit | Server-side hoofdschakelaar voor advertentieposities. `NEXT_PUBLIC_ADS_ENABLED` moet dezelfde waarde hebben voor de clientcomponenten. |
 | `AFFILIATE_LINKS_ENABLED` | uit | Uit betekent dat `/go/[offerId]` altijd rechtstreeks naar de winkel gaat, ook wanneer er al een affiliate-URL bij een aanbieding staat. |
+| `STAGING_MODE` | uit | Aan betekent: een melding bovenaan elke pagina ("Stagingomgeving · Voorbeelddata · Geen echte prijzen of affiliatelinks") en `/go/[offerId]` stuurt niet door naar de winkel, maar naar `/staging/uitgaand` met de uitleg welke aanbieder daar in productie zou openen. Er wordt dan geen affiliatelink gebouwd en geen uitgaande klik geregistreerd. In productie staat de vlag altijd uit, ook met `true`. |
 
 Wat productie afdwingt (zie `productionConfigProblems` in `src/lib/env.ts`):
 `DATABASE_URL`, een **https**-`NEXT_PUBLIC_SITE_URL`, `CRON_SECRET` van minimaal
@@ -1388,3 +1390,59 @@ Om een echte aanbieder aan te sluiten hebben wij deze gegevens nodig:
     subid-parameter en de toegestane tekens daarin.
 16. **Verzendkosten** — het veld, en of het bedrag volledig en betrouwbaar is.
     Zonder betrouwbare verzendkosten vergelijken wij alleen op productprijs.
+
+---
+
+## Stagingomgeving en statische opname
+
+Een stagingomgeving is een gewone start van de applicatie met drie vlaggen:
+
+```bash
+pnpm build
+STAGING_MODE=true DEMO_CONTENT_ENABLED=true SEARCH_ENGINE_INDEXING_ENABLED=false pnpm start --port 3100
+```
+
+`STAGING_MODE` doet twee dingen: de melding bovenaan elke pagina, en uitgaande
+knoppen komen uit op `/staging/uitgaand` in plaats van bij de aanbieder. Er wordt
+dan geen affiliatelink gebouwd en geen uitgaande klik geregistreerd. In productie
+is de vlag altijd uit.
+
+### Redactionele pagina's klaarzetten
+
+De demo-seed levert producten, prijzen en productteksten, maar geen redactionele
+pagina's: die maakt de redactie zelf. Voor een staging waarin een vergelijking,
+een budgetgids en twee collecties te bekijken zijn:
+
+```bash
+pnpm db:seed:editorial   # clusters en de criteriumbibliotheek
+pnpm db:seed:staging     # vier redactionele pagina's uit de fixtureproducten
+```
+
+`prisma/seed-staging.ts` weigert te lopen in productie. Het verzint geen feiten:
+elke criteriumwaarde komt uit `Product.specifications`, en levert de brondata een
+waarde niet, dan staat er `NOT_PROVIDED` in de database en "Niet opgegeven" in de
+tabel. De lopende tekst komt uit dezelfde templategenerator die de admin gebruikt
+en wordt langs dezelfde draftcontrole geleid. `indexable` wordt niet gezet maar
+door de quality gate berekend; het script logt per pagina wat eruit komt.
+
+### Eén HTML-bestand van de hele staging
+
+Voor iemand die de staging wil bekijken zonder server en database maakt
+`scripts/build-staging-artifact.mjs` één zelfstandig HTML-bestand van de
+draaiende omgeving:
+
+```bash
+pnpm staging:artifact --base http://localhost:3100
+```
+
+Het opent elke route in Chromium, bewaart de gerenderde HTML, sluit de stylesheet
+en de fonts als data-URI in en haalt elke afbeelding via de eigen server op.
+Lukt een afbeelding niet, dan komt dezelfde lokale fallback in het bestand die de
+applicatie gebruikt. Scripts gaan eruit; kleine shims vervangen de interactie die
+daarmee wegvalt: routering, de bewaarknop, het mobiele menu en het zoekformulier.
+Breedtegebaseerde media queries worden container queries, zodat dezelfde opname
+op 1440, 834 en 390 pixels de echte responsive layout laat zien.
+
+Dit is een opname, geen applicatie: server-side rendering, de database, de jobs,
+de API-routes en het adminpaneel zitten er niet in. Die zijn alleen te testen op
+een omgeving waar de applicatie echt draait.

@@ -39,6 +39,11 @@ backups/
 pgdata/
 postgres-data/
 
+# Statische opname van de stagingomgeving (scripts/build-staging-artifact.mjs).
+# Eén bestand van enkele megabytes met ingesloten afbeeldingen; opnieuw te maken
+# met `pnpm staging:artifact`.
+staging/
+
 # Uploads en door de app gegenereerde media
 uploads/
 public/uploads/
