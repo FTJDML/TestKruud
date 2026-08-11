@@ -5,6 +5,7 @@ import { readAdminSession } from '@/lib/admin/auth'
 import { computeDealPricing } from '@/lib/pricing/deal'
 import { formatMoney, toCents } from '@/lib/pricing/money'
 import {
+  approveContentAction,
   regenerateContentAction,
   setHeroAction,
   setProductStatusAction,
@@ -36,6 +37,12 @@ export default async function AdminProductDetail({ params }: { params: Promise<{
     },
   })
   if (!product) notFound()
+
+  const styleWarnings = Array.isArray(product.editorial?.styleWarnings)
+    ? (product.editorial?.styleWarnings as unknown[]).filter(
+        (entry): entry is string => typeof entry === 'string',
+      )
+    : []
 
   const specifications = Object.entries(
     (product.specifications && typeof product.specifications === 'object' && !Array.isArray(product.specifications)
@@ -188,8 +195,45 @@ export default async function AdminProductDetail({ params }: { params: Promise<{
           <h2 className="text-lg font-semibold">Redactionele tekst aanpassen</h2>
           <p className="mt-1 text-xs text-muted">
             Provider: {product.editorial.aiProvider} · prompt {product.editorial.promptVersion} ·{' '}
-            {product.editorial.reviewedAt ? 'beoordeeld' : 'nog niet beoordeeld'}
+            {product.editorial.reviewedAt ? 'beoordeeld' : 'nog niet beoordeeld'} ·{' '}
+            {product.editorial.humanReviewedAt
+              ? `door een mens gecontroleerd op ${product.editorial.humanReviewedAt.toISOString().slice(0, 10)}`
+              : 'nog niet door een mens gecontroleerd'}
+            {product.editorial.humanEdited ? ' · handmatig aangepast' : ''}
           </p>
+          <p className="mt-1 text-xs text-muted">
+            Opening: {product.editorial.openingStyle ?? 'niet vastgelegd'}
+            {product.editorial.styleVersion ? ` · stijlregels ${product.editorial.styleVersion}` : ''}
+          </p>
+          {styleWarnings.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-xs text-accent" role="list">
+              {styleWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
+          {!product.editorial.humanReviewedAt ? (
+            <form action={approveContentAction} className="mt-3 flex flex-wrap items-end gap-2">
+              <input type="hidden" name="productId" value={product.id} />
+              <label className="text-xs">
+                <span className="font-medium text-ink">Notitie bij de goedkeuring</span>
+                <input
+                  name="reviewerNotes"
+                  defaultValue={product.editorial.reviewerNotes ?? ''}
+                  className="mt-1 h-11 w-80 rounded-tile border border-line px-3 text-sm"
+                />
+              </label>
+              <button
+                type="submit"
+                className="inline-flex min-h-11 items-center rounded-pill border border-line px-4 text-sm font-semibold hover:border-ink"
+              >
+                Tekst inhoudelijk goedkeuren
+              </button>
+              <span className="text-xs text-muted">
+                Zonder deze stap blijft de pagina bereikbaar, maar niet indexeerbaar.
+              </span>
+            </form>
+          ) : null}
           <form action={updateEditorialAction} className="mt-4 space-y-4">
             <input type="hidden" name="productId" value={product.id} />
 
@@ -308,6 +352,23 @@ export default async function AdminProductDetail({ params }: { params: Promise<{
                   className="mt-1 h-11 w-full rounded-tile border border-line px-3 text-sm"
                 />
               </div>
+            </div>
+
+            <div>
+              <label htmlFor="reviewerNotes" className="block text-sm font-medium">
+                Notities van de reviewer
+              </label>
+              <textarea
+                id="reviewerNotes"
+                name="reviewerNotes"
+                rows={2}
+                defaultValue={product.editorial.reviewerNotes ?? ''}
+                className="mt-1 w-full rounded-tile border border-line p-3 text-sm"
+              />
+              <p className="mt-1 text-xs text-muted">
+                Voeg gerust een eigen redactionele zin toe, pas de opening aan of haal overdreven taal weg.
+                Opslaan geldt als inhoudelijke controle.
+              </p>
             </div>
 
             <button

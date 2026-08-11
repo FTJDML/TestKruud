@@ -342,6 +342,7 @@ Daar komen de controles van deze fase bij:
 | Overlappende primaryQuery waarschuwt, bijna identieke pagina's worden niet beide indexeerbaar, homepagevulling | `editorial-overlap.test.ts` |
 | AI-draft blijft NEEDS_REVIEW, claimt geen eigen ervaring, vult geen ontbrekend criterium in; CSV-import van briefs en producten | `editorial-draft.test.ts` |
 | Verweesde pagina geblokkeerd, noindex-product blijft browsebaar, slug blijft na feedkoppeling, structured data gelijk aan de zichtbare prijs, launchdashboard zonder fictieve aantallen | `editorial-database.test.ts` |
+| Leestekens, cliché-taal, ervaringsclaims, informele openingen (15%), openingsstijlen en variatie, SEO-velden zakelijk | `style-voice.test.ts` |
 
 Vier testbestanden gebruiken een echte database wanneer `DATABASE_URL` is gezet
 en slaan zichzelf anders over: `saves.test.ts` (dubbele saves),
@@ -585,6 +586,111 @@ producten komen in de dagelijkse editie, in een dealssectie en achter het
 dealfilter op een categoriepagina. Een product zonder geldige referentieprijs
 kan daar dus nooit terechtkomen — dat is één regel op één plek, en er zijn tests
 voor elk van de zes voorwaarden.
+
+## Redactionele schrijfstijl
+
+Eén herkenbare merkstem: nieuwsgierig, menselijk, licht geestig, soms
+enthousiast, concreet, niet schreeuwerig en niet overdreven commercieel. De
+regels staan als code in `src/lib/ai/style/` en worden bij elke generatie
+toegepast, zodat de stem niet afhangt van wie er schrijft.
+
+**Wat wij niet doen.** Er worden nooit spelfouten, tikfouten of nepspreektaal
+toegevoegd om tekst menselijker te laten lijken, en er wordt niet geschreven voor
+een zoekmachine, AI-detector of ander systeem. Wat de stijlmodule controleert is
+leesbaarheid en eerlijkheid.
+
+### Leestekens
+
+| Regel | Waar |
+| --- | --- |
+| Geen em dash (`—`) | overal |
+| Geen en dash (`–`) als tussenzin | overal |
+| Geen koppelteken als onderbreking tussen zinsdelen (` - `) | overal |
+| Correcte samenstellingen blijven: `90-dagenprijs`, `wifi-router`, `prijs-kwaliteitverhouding` | overal |
+| Maximaal één uitroepteken | lopende tekst |
+| Geen enkel uitroepteken | SEO-title, meta description, vergelijkingen, methodologie |
+| Geen emoji, geen kapitalen | overal |
+
+Deze regels blokkeren publicatie: `findContentBlockers` weigert de tekst en het
+product gaat naar `NEEDS_REVIEW`. Cliché-taal blokkeert niet, maar komt als
+waarschuwing in de admin te staan.
+
+### Standaard AI-taal
+
+Geweerd, tenzij inhoudelijk onvermijdelijk: *gamechanger, must-have, naar een
+hoger niveau tillen, naadloos, ongeëvenaarde ervaring, revolutionair, perfect
+voor iedereen, "of je nu ... of ...", in de wereld van, laten we erin duiken, de
+ultieme, combineert stijl en functionaliteit, is meer dan alleen, een vleugje,
+ontdek de perfecte balans, "niet alleen ..., maar ook ...", "ideaal voor zowel
+... als ..."*.
+
+### Ervaringsclaims
+
+Zonder `experienceType = HANDS_ON_TESTED` blokkeren deze formuleringen: *dat zit
+lekker, wij vonden, voelt stevig, werkt uitstekend, is verrassend stil, smaakt
+beter, we hebben getest, na een week gebruik*. Toegestane alternatieven: *daar wil
+je zo in neerploffen, ziet er comfortabel uit, volgens de fabrikant, op basis van
+de opgegeven specificaties, vooral interessant voor, lijkt bedoeld voor, zonder
+eigen meting kunnen we dit niet bevestigen*.
+
+De eerlijke ontkenning mag juist wél: "wij hebben dit product niet zelf gebruikt"
+staat standaard in de templatecontent.
+
+### Openingen
+
+Elke tekst kiest één `openingStyle` die bij het product en de beschikbare feiten
+past: `PRICE_DROP`, `RECOGNIZABLE_PROBLEM`, `VISUAL_SURPRISE`, `USE_CASE_SCENE`,
+`GIFT_REACTION`, `DESIGN_OBSERVATION`, `PRACTICAL_DISCOVERY`, `DRY_HUMOR`,
+`DIRECT_FACT` of `EDITORIAL_QUESTION`.
+
+De keuze is niet willekeurig maar gelaagd: een gemeten prijsdaling opent met de
+prijs, een cadeau met de reactie, een vergelijking met een feit. Binnen een laag
+spreidt een stabiele hash van de slug, zodat twee producten naast elkaar niet
+hetzelfde openen. Per stijl bestaan drie formuleringen, en er wordt doorgerouleerd
+zolang de openingszin al in de laatste twintig publicaties staat.
+
+Bewaard per tekst: `openingStyle`, `openingHash`, `closingHash`, `styleVersion` en
+`styleWarnings`. Daarmee worden voorkomen:
+
+- dezelfde `openingStyle` meer dan drie keer achter elkaar;
+- sterk gelijkende openingszinnen binnen de laatste twintig publicaties;
+- dezelfde grap of slotzin bij meerdere producten.
+
+Informele openingen (*"Woww..."*, *"Kijk..."*, *"Pohh..."*, *"Oké, dit is slim."*)
+mogen bij maximaal 15 procent van de productteksten, deterministisch verdeeld
+(`informalOpeningBudget`), maximaal één per tekst, en nooit in een SEO-veld, een
+vergelijking of een methodologietekst.
+
+### Verschil per contenttype
+
+| Type | Toon |
+| --- | --- |
+| `DISCOVERY` | speels, maximaal één informele uitroep, gericht op nieuwsgierigheid |
+| `DEAL` | begint met de gemeten prijsbeweging; humor ondergeschikt aan de prijsinformatie |
+| `COMPARISON` | feitelijk en rustig, geen informele opening, conclusies volgen uit de criteria |
+| `DESIGN_COLLECTION` | beeldend mag, maar geen comfort- of kwaliteitsclaim zonder bewijs |
+| `GIFT_GUIDE` | enthousiast mag, met de leeftijdsindicatie van de fabrikant |
+| SEO-title en meta description | helder en beschrijvend, geen informele spelling, geen emoji, geen uitroepteken |
+
+Prijzen en percentages staan nooit in opgeslagen tekst: die komen uit de
+meetgegevens en staan los op de pagina.
+
+### Menselijke review
+
+Machinegegenereerde tekst is **nooit indexeerbaar zonder menselijke controle**.
+De indexeringspoort eist `humanReviewedAt` zodra er een generatieprovider bij de
+tekst staat; tot die tijd is de pagina gewoon bereikbaar met `noindex, follow`.
+
+In `/admin/producten/<id>` kan de beheerder een eigen redactionele zin toevoegen,
+de opening aanpassen, overdreven taal weghalen, de bronfeiten nalezen en de tekst
+goedkeuren. Opslaan geldt als inhoudelijke controle (`humanEdited = true`);
+goedkeuren zonder wijzigen kan met de knop *Tekst inhoudelijk goedkeuren*.
+Hetzelfde geldt voor redactionele pagina's in `/admin/redactie/<id>`.
+
+Bewaard bij elke tekst: `generatedAt`, `humanReviewedAt`, `humanEdited`,
+`reviewerNotes`, `openingStyle` en de factshash (`sourceFactsHash` bij producten,
+`contentFactsHash` bij pagina's). Een nieuwe generatie zet `humanReviewedAt` terug
+op leeg: opnieuw gegenereerde tekst is opnieuw ongelezen.
 
 ## Afbeeldingen: validatie en terugval
 

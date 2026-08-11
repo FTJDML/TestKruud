@@ -67,6 +67,10 @@ export type EditorialGateInput = {
   seoTitleUnique: boolean
   metaDescriptionUnique: boolean
   reviewedAt: Date | null
+  /** Inhoudelijke controle door een mens; nodig bij gegenereerde tekst. */
+  humanReviewedAt?: Date | null
+  /** Provider van de tekst; leeg betekent door een mens geschreven. */
+  generationProvider?: string | null
   lastFactCheckedAt: Date | null
   budgetMinCents: number | null
   budgetMaxCents: number | null
@@ -97,6 +101,11 @@ export function evaluateEditorialIndexability(input: EditorialGateInput): Indexa
 
   if (input.status !== 'PUBLISHED') reasons.push(`status is ${input.status}, niet PUBLISHED`)
   if (!input.reviewedAt) reasons.push('redactionele review is nog niet afgerond')
+  // Gegenereerde tekst is pas indexeerbaar nadat een mens haar inhoudelijk heeft
+  // gecontroleerd.
+  if ((input.generationProvider ?? '').length > 0 && !input.humanReviewedAt) {
+    reasons.push('gegenereerde tekst is nog niet door een mens gecontroleerd')
+  }
   if (input.primaryQuery.trim().length < 8) reasons.push('primaryQuery ontbreekt of is te kort')
   if (!input.searchIntent) reasons.push('searchIntent is niet gekozen')
   if (input.introduction.trim().length < 200) reasons.push('introductie is te kort voor een eigen pagina')
@@ -229,6 +238,13 @@ export type ProductGateInput = {
   imageStatus: ImageStatus
   hasEditorial: boolean
   editorialReviewedAt: Date | null
+  /**
+   * Moment waarop een mens de tekst inhoudelijk controleerde. Machinegegenereerde
+   * tekst is zonder deze datum nooit indexeerbaar.
+   */
+  humanReviewedAt?: Date | null
+  /** Provider van de tekst; `null` of "handmatig" betekent door een mens geschreven. */
+  generationProvider?: string | null
   activeOfferCount: number
   /** Aantal gecontroleerde specificaties uit brondata. */
   specificationCount: number
@@ -261,6 +277,13 @@ export function evaluateProductIndexability(input: ProductGateInput): Indexabili
   if (!input.hasEditorial) reasons.push('geen redactionele content')
   if (input.hasEditorial && !input.editorialReviewedAt) {
     reasons.push('redactionele content is nog niet beoordeeld')
+  }
+  // Geen indexeerbare tekst die niet inhoudelijk door een mens is gecontroleerd.
+  // Handmatig geschreven tekst heeft geen provider en valt hier dus buiten.
+  const machineWritten =
+    (input.generationProvider ?? '').length > 0 && input.generationProvider !== 'handmatig'
+  if (input.hasEditorial && machineWritten && !input.humanReviewedAt) {
+    reasons.push('gegenereerde tekst is nog niet door een mens gecontroleerd')
   }
   if (input.activeOfferCount < 1) reasons.push('geen actieve aanbieding')
   if (input.specificationCount === 0 && input.observedPriceCount < 2) {

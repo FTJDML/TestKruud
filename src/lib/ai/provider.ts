@@ -1,4 +1,4 @@
-import type { ExperienceType } from '@prisma/client'
+import type { ExperienceType, OpeningStyle } from '@prisma/client'
 import type { EditorialContentPayload } from '@/lib/ai/schema'
 
 export type { ExperienceType }
@@ -62,6 +62,16 @@ export type ProductFacts = {
    * eerstehandservaring suggereren.
    */
   experienceType?: ExperienceType
+  /** Stabiele sleutel (slug of id); bepaalt de deterministische stijlkeuze. */
+  key?: string
+  /** Openingsstijlen van de laatste publicaties, nieuwste eerst. */
+  recentOpeningStyles?: OpeningStyle[]
+  /** Hashes van recente openings- en slotzinnen; voorkomt herhaling. */
+  recentOpeningHashes?: Array<{ openingHash: string | null; closingHash: string | null }>
+  /** Gekozen openingsstijl; de provider houdt zich daaraan. */
+  openingStyle?: OpeningStyle | null
+  /** Mag deze tekst een informele opening krijgen? Ongeveer 15% van de teksten. */
+  allowInformalOpening?: boolean
 }
 
 export type EditorialGenerationResult = {
@@ -75,6 +85,14 @@ export type EditorialGenerationResult = {
   model?: string | null
   /** Korte opsomming van de feiten waarop de tekst zich baseert. */
   evidenceSummary?: string | null
+  /** Gekozen openingsstijl en hashes van de eerste en laatste zin. */
+  openingStyle?: OpeningStyle | null
+  openingHash?: string | null
+  closingHash?: string | null
+  /** Versie van de stijlregels waaronder de tekst is geschreven. */
+  styleVersion?: string | null
+  /** Stijlbevindingen die de redactie nog kan opvolgen. */
+  styleWarnings?: string[]
 }
 
 export type EditorialContentProvider = {

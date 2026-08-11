@@ -262,6 +262,8 @@ function productIndexability(
     imageStatus: product.imageStatus,
     hasEditorial: product.editorial !== null,
     editorialReviewedAt: product.editorial?.reviewedAt ?? null,
+    humanReviewedAt: product.editorial?.humanReviewedAt ?? null,
+    generationProvider: product.editorial?.generationProvider ?? product.editorial?.aiProvider ?? null,
     activeOfferCount: activeOffers.length,
     specificationCount: specifications,
     observedPriceCount: product.analysis?.numberOfObservedPrices ?? 0,

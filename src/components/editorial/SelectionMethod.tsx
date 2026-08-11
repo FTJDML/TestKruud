@@ -58,7 +58,7 @@ export function SelectionMethod({
           <dd className="mt-1">
             {sources.handsOnTested
               ? 'ja, met een vastgelegde eigen test'
-              : 'nee — wij vergelijken op gecontroleerde brondata en onze eigen prijsmetingen'}
+              : 'nee. Wij vergelijken op gecontroleerde brondata en onze eigen prijsmetingen'}
           </dd>
         </div>
       </dl>
@@ -79,7 +79,7 @@ export function SelectionMethod({
               ) : (
                 source.title
               )}
-              {source.publisher ? ` — ${source.publisher}` : ''} · bekeken op{' '}
+              {source.publisher ? `, ${source.publisher}` : ''} · bekeken op{' '}
               {dateFormat.format(source.accessedAt)}
             </li>
           ))}

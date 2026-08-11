@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { ExperienceType } from '@prisma/client'
 import { looksDutch } from '@/lib/ai/language'
+import { blockingVoiceIssues, checkVoice, type StyleSurface } from '@/lib/ai/style/voice'
 import { wordCount } from '@/lib/utils'
 
 /**
@@ -130,6 +131,20 @@ export function findExperienceClaims(
  * Nederlands is, gekopieerde velden, prijzen of kortingspercentages, dezelfde
  * zin die zich blijft herhalen, en eerstehandservaring die wij niet hebben.
  */
+/**
+ * Oppervlak per veld, voor de stijlcontrole. De SEO-velden zijn strenger: daar
+ * hoort geen uitroepteken en geen informele opening.
+ */
+const surfaceByField: Record<string, StyleSurface> = {
+  headline: 'HEADLINE',
+  teaser: 'TEASER',
+  longDescription: 'BODY',
+  whyItStandsOut: 'BODY',
+  caveat: 'CAVEAT',
+  seoTitle: 'SEO_TITLE',
+  metaDescription: 'META_DESCRIPTION',
+}
+
 export function findContentBlockers(
   payload: EditorialContentPayload,
   options: { experienceType?: ExperienceType } = {},
@@ -182,6 +197,23 @@ export function findContentBlockers(
   }
 
   blockers.push(...findExperienceClaims(payload, options.experienceType))
+
+  // Leestekens en toon: een em dash, een uitroepteken in een SEO-veld, kapitalen
+  // of een emoji maken de tekst onleesbaar of te schreeuwerig. Cliché-taal is
+  // hier bewust géén blokkade: dat is een advies aan de redactie.
+  for (const [field, surface] of Object.entries(surfaceByField)) {
+    const value = payload[field as keyof EditorialContentPayload]
+    if (typeof value !== 'string') continue
+    const issues = blockingVoiceIssues(
+      checkVoice(value, {
+        surface,
+        ...(options.experienceType ? { experienceType: options.experienceType } : {}),
+      }),
+    )
+    for (const issue of issues) {
+      blockers.push({ field: field as keyof EditorialContentPayload, message: issue.message })
+    }
+  }
 
   return blockers
 }

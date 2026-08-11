@@ -4,6 +4,20 @@ import { archetypeFor } from '@/lib/editorial/archetypes'
 import { searchIntentLabels } from '@/lib/editorial/archetypes'
 import { formatMoney } from '@/lib/pricing/money'
 import { looksDutch } from '@/lib/ai/language'
+import {
+  chooseOpeningStyle,
+  firstSentence,
+  lastSentence,
+  openingHash,
+  type OpeningStyle,
+  type PublishedOpening,
+} from '@/lib/ai/style/openings'
+import {
+  blockingVoiceIssues,
+  checkVoice,
+  STYLE_VERSION,
+  type StyleContentType,
+} from '@/lib/ai/style/voice'
 
 /**
  * AI-drafts voor redactionele pagina's.
@@ -51,6 +65,10 @@ export type EditorialDraftFacts = {
   sources: Array<{ typeLabel: string; title: string }>
   /** Hebben wij zelf getest? Alleen waar met een vastgelegde eigen test. */
   handsOnTested: boolean
+  /** Stabiele sleutel (slug of id) voor de deterministische stijlkeuze. */
+  key?: string
+  /** Openingen van de laatste publicaties, nieuwste eerst. */
+  recentOpenings?: PublishedOpening[]
 }
 
 /** Wat een draft oplevert. Alle velden zijn voorstellen voor de redactie. */
@@ -75,6 +93,12 @@ export type EditorialDraftResult = {
   /** Altijd true: een draft is nooit publicabel zonder mens. */
   needsReview: true
   warnings: string[]
+  openingStyle: OpeningStyle
+  openingHash: string
+  closingHash: string
+  styleVersion: string
+  /** Stijlbevindingen; adviezen voor de redactie. */
+  styleWarnings: string[]
 }
 
 /**
@@ -149,7 +173,43 @@ export function findDraftProblems(draft: EditorialDraft, facts: EditorialDraftFa
     problems.push('introductie sluit niet aan op de primaryQuery')
   }
 
+  // Leestekens en toon die de tekst onleesbaar of schreeuwerig maken. De
+  // ervaringsregels lopen mee: is er een vastgelegde eigen test, dan mag de tekst
+  // daarover gaan.
+  const contentType = styleContentTypeFor(facts.type)
+  const experienceType: ExperienceType = facts.handsOnTested ? 'HANDS_ON_TESTED' : 'NOT_TESTED'
+  const voice = (text: string, surface: Parameters<typeof checkVoice>[1]['surface']) =>
+    blockingVoiceIssues(checkVoice(text, { surface, contentType, experienceType }))
+  const voiceIssues = [
+    ...voice(draft.introduction, 'TEASER'),
+    ...voice(draft.methodology, 'METHODOLOGY'),
+    ...voice(draft.conclusion, 'BODY'),
+    ...voice(draft.seoTitle, 'SEO_TITLE'),
+    ...voice(draft.metaDescription, 'META_DESCRIPTION'),
+  ]
+  for (const issue of voiceIssues) problems.push(`${issue.surface}: ${issue.message}`)
+
   return [...new Set(problems)]
+}
+
+/** Welk stijlregime hoort bij dit archetype? */
+export function styleContentTypeFor(type: EditorialPageType): StyleContentType {
+  switch (type) {
+    case 'COMPARISON':
+    case 'BEST_OF':
+    case 'BUDGET_GUIDE':
+    case 'USE_CASE_GUIDE':
+    case 'PROBLEM_SOLUTION':
+      return 'COMPARISON'
+    case 'GIFT_GUIDE':
+      return 'GIFT_GUIDE'
+    case 'DESIGN_COLLECTION':
+      return 'DESIGN_COLLECTION'
+    case 'DEAL_COLLECTION':
+      return 'DEAL'
+    case 'DISCOVERY_COLLECTION':
+      return 'DISCOVERY'
+  }
 }
 
 function budgetSentence(facts: EditorialDraftFacts): string {
@@ -176,7 +236,7 @@ export function buildTemplateDraft(facts: EditorialDraftFacts): EditorialDraftRe
     `${facts.primaryQuery.charAt(0).toUpperCase()}${facts.primaryQuery.slice(1)}: wij vergeleken ${selected.length} producten die wij zelf volgen.`,
     budgetSentence(facts),
     criteriaNames.length > 0
-      ? `De vergelijking gaat over ${criteriaNames.slice(0, 4).join(', ')} — allemaal gegevens die in de brondata staan en dus na te kijken zijn.`
+      ? `De vergelijking gaat over ${criteriaNames.slice(0, 4).join(', ')}. Dat zijn allemaal gegevens die in de brondata staan en dus na te kijken zijn.`
       : 'Wij kijken naar wat er in de brondata te controleren valt en laten de rest weg.',
     facts.useCase ? `Uitgangspunt is één situatie: ${facts.useCase}.` : '',
     `Deze pagina is bedoeld voor ${audience}. Wat wij niet weten, staat er ook niet: ontbreekt een gegeven bij de aanbieder, dan blijft het veld leeg in plaats van dat wij het invullen.`,
@@ -209,7 +269,7 @@ export function buildTemplateDraft(facts: EditorialDraftFacts): EditorialDraftRe
       ? `Voor ${audience} is de keuze vooral een afweging tussen ${criteriaNames[0] ?? 'de eigenschappen'} en prijs.`
       : '',
     'Bij elk product staat waarom het is opgenomen en waar het tekortschiet; die combinatie is bruikbaarder dan een ranglijst.',
-    'Prijzen wijzigen dagelijks — de bedragen op deze pagina zijn onze laatste meting.',
+    'Prijzen wijzigen dagelijks, dus de bedragen op deze pagina zijn onze laatste meting.',
   ]
     .filter((sentence) => sentence.length > 0)
     .join(' ')
@@ -251,12 +311,47 @@ export function buildTemplateDraft(facts: EditorialDraftFacts): EditorialDraftRe
     frequentlyAskedQuestions: faqs,
   })
 
+  const contentType = styleContentTypeFor(facts.type)
+  const openingStyle = chooseOpeningStyle({
+    key: facts.key ?? facts.primaryQuery,
+    contentType,
+    hasKnownProblem: facts.products.some((product) => product.knownCaveat !== null),
+    isGift: facts.type === 'GIFT_GUIDE',
+    isDesignLed: facts.type === 'DESIGN_COLLECTION',
+    ...(facts.recentOpenings
+      ? {
+          recentStyles: facts.recentOpenings
+            .map((entry) => entry.openingStyle)
+            .filter((style): style is OpeningStyle => style !== null),
+        }
+      : {}),
+  })
+
+  // Een vergelijking blijft rustig: de stijlcontrole is hier strenger dan bij een
+  // vondstencollectie.
+  const experienceType: ExperienceType = facts.handsOnTested ? 'HANDS_ON_TESTED' : 'NOT_TESTED'
+  const styleWarnings = [
+    ...checkVoice(draft.introduction, { surface: 'TEASER', contentType, experienceType }),
+    ...checkVoice(draft.methodology, { surface: 'METHODOLOGY', contentType, experienceType }),
+    ...checkVoice(draft.conclusion, { surface: 'BODY', contentType, experienceType }),
+    ...checkVoice(draft.seoTitle, { surface: 'SEO_TITLE', contentType }),
+    ...checkVoice(draft.metaDescription, { surface: 'META_DESCRIPTION', contentType }),
+    ...draft.frequentlyAskedQuestions.flatMap((faq) =>
+      checkVoice(faq.answer, { surface: 'BODY', contentType, experienceType }),
+    ),
+  ].map((issue) => `${issue.surface}: ${issue.message}`)
+
   return {
     draft,
     provider: 'template',
     model: null,
     needsReview: true,
     warnings: findDraftProblems(draft, facts),
+    openingStyle,
+    openingHash: openingHash(firstSentence(draft.introduction)),
+    closingHash: openingHash(lastSentence(draft.conclusion)),
+    styleVersion: STYLE_VERSION,
+    styleWarnings,
   }
 }
 

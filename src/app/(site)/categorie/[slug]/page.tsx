@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!category) notFound()
 
   return buildMetadata({
-    title: `${category.name} — bijzondere vondsten`,
+    title: `${category.name}: bijzondere vondsten`,
     description: category.intro.slice(0, 155),
     path: `/categorie/${category.slug}`,
   })

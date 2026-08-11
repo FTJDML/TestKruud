@@ -19,7 +19,7 @@ export default function CookiesPage() {
       <h2>Functionele cookie</h2>
       <ul>
         <li>
-          <strong>hald_vid</strong> — een willekeurig, anoniem bezoekers-ID. Nodig om bewaarde producten aan jouw
+          <strong>hald_vid</strong>: een willekeurig, anoniem bezoekers-ID. Nodig om bewaarde producten aan jouw
           browser te koppelen zonder account. httpOnly, first-party, één jaar geldig.
         </li>
       </ul>
@@ -27,7 +27,7 @@ export default function CookiesPage() {
       <h2>Lokale opslag</h2>
       <ul>
         <li>
-          <strong>hald.saves.v1</strong> — een lijstje met de product-ID’s die je hebt bewaard, zodat het hartje
+          <strong>hald.saves.v1</strong>: een lijstje met de product-ID’s die je hebt bewaard, zodat het hartje
           direct de juiste status laat zien. Deze lijst blijft in je browser.
         </li>
       </ul>

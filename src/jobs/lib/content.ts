@@ -1,5 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { providerForProduct } from '@/lib/ai'
+import { chooseOpeningStyle } from '@/lib/ai/style/openings'
+import { informalOpeningBudget } from '@/lib/ai/style/voice'
 import { validateEditorialContent } from '@/lib/ai/schema'
 import {
   factsFingerprint,
@@ -41,6 +43,20 @@ export async function generateMissingContent(
   options: { limit?: number; force?: boolean } = {},
 ): Promise<ContentSummary> {
   const summary: ContentSummary = { generated: 0, skipped: 0, needsReview: 0, blocked: 0, failed: 0 }
+
+  // Recente openingen, nieuwste eerst: hiermee voorkomen wij dat dezelfde stijl
+  // of dezelfde openingszin zich blijft herhalen.
+  const recent = await prisma.editorialContent.findMany({
+    orderBy: { generatedAt: 'desc' },
+    take: 20,
+    select: { openingStyle: true, openingHash: true, closingHash: true },
+  })
+  // Rolling historie: de stijlen uit de database, en tijdens deze run vullen wij
+  // hem aan met wat wij zelf kiezen. Anders zou één run twintig keer dezelfde
+  // opening kunnen opleveren.
+  const recentStyles = recent
+    .map((entry) => entry.openingStyle)
+    .filter((style): style is NonNullable<typeof style> => style !== null)
 
   const products = await prisma.product.findMany({
     where: { status: { in: ['CANDIDATE', 'DRAFT', 'NEEDS_REVIEW', 'PUBLISHED'] } },
@@ -118,7 +134,39 @@ export async function generateMissingContent(
         .filter((title) => title !== product.title)
         .slice(0, 3),
       experienceType: product.experienceType,
+      key: product.slug,
+      recentOpeningStyles: recentStyles,
+      recentOpeningHashes: recent.map((entry) => ({
+        openingHash: entry.openingHash,
+        closingHash: entry.closingHash,
+      })),
     }
+
+    // Openingsstijl en het informele budget staan vast vóór de generatie, zodat
+    // elke provider zich aan dezelfde keuze houdt.
+    facts.openingStyle = chooseOpeningStyle({
+      key: product.slug,
+      contentType: priceAnalysis?.hasPriceDrop
+        ? 'DEAL'
+        : product.primaryCategory === 'Onnodig Maar Geweldig'
+          ? 'DISCOVERY'
+          : product.primaryCategory === 'Cadeaus'
+            ? 'GIFT_GUIDE'
+            : product.primaryCategory === 'Wonen & Design'
+              ? 'DESIGN_COLLECTION'
+              : 'GENERIC',
+      hasMeasuredPriceDrop: priceAnalysis?.hasPriceDrop ?? false,
+      hasKnownProblem: knownCons.length > 0,
+      isGift: product.primaryCategory === 'Cadeaus',
+      isDesignLed: product.primaryCategory === 'Wonen & Design',
+      isUnusual: product.primaryCategory === 'Onnodig Maar Geweldig',
+      recentStyles,
+    })
+    facts.allowInformalOpening = informalOpeningBudget(product.slug)
+    // Nieuwste vooraan, zodat de volgende iteratie deze keuze meeneemt.
+    recentStyles.unshift(facts.openingStyle)
+    recentStyles.length = Math.min(recentStyles.length, 20)
+
     const fingerprint = factsFingerprint(facts)
 
     if (
@@ -175,8 +223,17 @@ export async function generateMissingContent(
             generationWarnings: result.warnings as Prisma.InputJsonValue,
             evidenceSummary: result.evidenceSummary ?? null,
             experienceType: product.experienceType,
+            openingStyle: result.openingStyle ?? null,
+            openingHash: result.openingHash ?? null,
+            closingHash: result.closingHash ?? null,
+            styleVersion: result.styleVersion ?? null,
+            styleWarnings: (result.styleWarnings ?? []) as Prisma.InputJsonValue,
             generatedAt: new Date(),
             reviewedAt: result.needsReview ? null : new Date(),
+            // Machinegegenereerde tekst wordt pas indexeerbaar na een menselijke
+            // controle; een nieuwe generatie zet die controle terug.
+            humanReviewedAt: null,
+            humanEdited: false,
           },
           update: {
             headline: content.headline,
@@ -197,8 +254,15 @@ export async function generateMissingContent(
             generationWarnings: result.warnings as Prisma.InputJsonValue,
             evidenceSummary: result.evidenceSummary ?? null,
             experienceType: product.experienceType,
+            openingStyle: result.openingStyle ?? null,
+            openingHash: result.openingHash ?? null,
+            closingHash: result.closingHash ?? null,
+            styleVersion: result.styleVersion ?? null,
+            styleWarnings: (result.styleWarnings ?? []) as Prisma.InputJsonValue,
             generatedAt: new Date(),
             reviewedAt: result.needsReview ? null : new Date(),
+            humanReviewedAt: null,
+            humanEdited: false,
           },
         }),
         prisma.product.update({
@@ -222,8 +286,12 @@ export async function generateMissingContent(
 
       summary.generated += 1
       if (result.needsReview) summary.needsReview += 1
-      if (result.warnings.length > 0) {
-        logger.warn('Contentwaarschuwingen', { product: product.slug, warnings: result.warnings })
+      if (result.warnings.length > 0 || (result.styleWarnings ?? []).length > 0) {
+        logger.warn('Contentwaarschuwingen', {
+          product: product.slug,
+          warnings: result.warnings,
+          style: result.styleWarnings ?? [],
+        })
       }
     } catch (error) {
       summary.failed += 1

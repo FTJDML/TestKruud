@@ -77,7 +77,7 @@ export function PageDetailsForm({
             className="mt-1 min-h-11 w-full rounded-tile border border-line bg-canvas px-3 text-sm"
           />
           <span className="mt-1 block text-xs text-muted">
-            Gebruik deze vraag natuurlijk in de titel, de intro, één tussenkop en de meta description — niet
+            Gebruik deze vraag natuurlijk in de titel, de intro, één tussenkop en de meta description, niet
             als opsomming van zoekwoorden.
           </span>
         </label>
@@ -201,7 +201,7 @@ export function PageDetailsForm({
         </label>
 
         <label className="text-sm sm:col-span-2">
-          <span className="font-medium text-ink">Veelgestelde vragen — één per regel: vraag | antwoord</span>
+          <span className="font-medium text-ink">Veelgestelde vragen, één per regel: vraag | antwoord</span>
           <textarea
             name="faqs"
             rows={4}

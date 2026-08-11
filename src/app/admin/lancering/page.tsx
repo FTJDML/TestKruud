@@ -206,7 +206,7 @@ export default async function AdminLaunchDashboard() {
               {dashboard.invalidImages.slice(0, 8).map((product) => (
                 <li key={product.slug}>
                   {product.title}
-                  <span className="text-xs text-muted"> — {product.reason ?? 'geen reden vastgelegd'}</span>
+                  <span className="text-xs text-muted">: {product.reason ?? 'geen reden vastgelegd'}</span>
                 </li>
               ))}
             </ul>

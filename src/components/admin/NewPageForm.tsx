@@ -29,7 +29,7 @@ export function NewPageForm({ clusters }: { clusters: ReadonlyArray<{ id: string
           >
             {editorialPageTypes.map((type) => (
               <option key={type} value={type}>
-                {archetypes[type].label} — minimaal {archetypes[type].minProducts} producten
+                {archetypes[type].label}: minimaal {archetypes[type].minProducts} producten
               </option>
             ))}
           </select>

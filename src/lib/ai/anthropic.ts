@@ -2,6 +2,13 @@ import Anthropic from '@anthropic-ai/sdk'
 import { serverEnv } from '@/lib/env'
 import { errorMessage, logger } from '@/lib/logger'
 import {
+  firstSentence,
+  lastSentence,
+  openingHash,
+  openingStyleDescriptions,
+} from '@/lib/ai/style/openings'
+import { checkVoice, STYLE_VERSION, type StyleContentType } from '@/lib/ai/style/voice'
+import {
   buildEvidenceSummary,
   type EditorialContentProvider,
   type EditorialGenerationResult,
@@ -21,8 +28,9 @@ export const ANTHROPIC_SYSTEM_PROMPT = `Je bent redacteur bij HomeAndLivingDeals
 discovery-commerce magazine voor bijzondere, slimme en soms licht absurde producten
 voor in en om het huis.
 
-Tone of voice: nieuwsgierig, menselijk, kort, licht geestig, warm en geloofwaardig.
-Niet schreeuwerig en nooit alsof je het product zelf hebt getest.
+Tone of voice: nieuwsgierig, menselijk, kort, licht geestig, soms enthousiast,
+concreet, warm en geloofwaardig. Niet schreeuwerig, niet overdreven commercieel,
+en nooit alsof je het product zelf hebt getest.
 
 Regels:
 - Schrijf uitsluitend Nederlands.
@@ -31,7 +39,7 @@ Regels:
 - Voeg één eerlijk aandachtspunt toe dat je uit de gegeven productfeiten kunt afleiden.
 - Verzin geen materialen, afmetingen, functies, schaarste of einddatums.
 - Noem geen prijzen, kortingen, percentages of bespaarde bedragen; de applicatie rekent die zelf.
-- Geen uitroeptekens, geen overdreven superlatieven, geen "must-have".
+- Geen overdreven superlatieven en geen "must-have"; maximaal één uitroepteken per tekst.
 - Schrijf geen reviews, sterren of gebruikerservaringen.
 - Neem geen fabrikantentekst letterlijk over.
 - Suggereer geen eigen ervaring, tenzij bij de feiten staat dat wij het product zelf
@@ -40,6 +48,34 @@ Regels:
 - Geef geen kwaliteits- of duurzaamheidsoordeel dat niet uit de gegeven feiten volgt.
 - Onze eigen prijsmetingen staan als achtergrond bij de feiten. Zet ze niet in de tekst
   en bereken er niets uit: de website toont ze los, rechtstreeks uit de meetgegevens.
+
+Leestekens en spelling:
+- Schrijf correct Nederlands. Voeg nooit spelfouten, tikfouten of nepspreektaal toe;
+  tekst hoeft niet "menselijker" gemaakt te worden en wij misleiden geen enkel systeem.
+- Gebruik geen em dash (—) en geen en dash (–) als tussenzin, en geen koppelteken als
+  onderbreking tussen zinsdelen. Maak er twee korte zinnen van of gebruik een komma.
+- Correcte Nederlandse koppeltekens in samenstellingen blijven staan: 90-dagenprijs,
+  wifi-router, prijs-kwaliteitverhouding.
+- Maximaal één uitroepteken in een tekst, en geen enkel uitroepteken in de seoTitle of
+  de metaDescription. Geen emoji, geen kapitalen.
+
+Vermijd deze standaardtaal, tenzij zij inhoudelijk onvermijdelijk is: gamechanger,
+must-have, naar een hoger niveau tillen, naadloos, ongeëvenaarde ervaring,
+revolutionair, perfect voor iedereen, "of je nu ... of ...", in de wereld van,
+laten we erin duiken, de ultieme, combineert stijl en functionaliteit,
+is meer dan alleen, een vleugje, ontdek de perfecte balans,
+"niet alleen ..., maar ook ...", "ideaal voor zowel ... als ...".
+
+Zonder eigen test niet schrijven: "dat zit lekker", "wij vonden", "voelt stevig",
+"werkt uitstekend", "is verrassend stil", "smaakt beter", "we hebben getest",
+"na een week gebruik". Gebruik in plaats daarvan: "daar wil je zo in neerploffen",
+"ziet er comfortabel uit", "volgens de fabrikant", "op basis van de opgegeven
+specificaties", "vooral interessant voor", "lijkt bedoeld voor", of "zonder eigen
+meting kunnen we dit niet bevestigen".
+
+Een informele opening ("Woww...", "Kijk...", "Pohh...", "Oké, dit is slim.") mag
+alleen wanneer de opdracht dat expliciet toestaat, en dan maximaal één keer. Nooit in
+de seoTitle of de metaDescription.
 
 Lengterichtlijnen: headline maximaal 75 tekens, teaser 45-70 woorden,
 longDescription 120-220 woorden, seoTitle maximaal 60 tekens,
@@ -73,7 +109,17 @@ export function buildFactsPrompt(facts: ProductFacts): string {
   const list = (values: readonly string[] | undefined, empty: string) =>
     values && values.length > 0 ? values.map((value) => `- ${value}`).join('\n') : `- ${empty}`
 
+  const openingInstruction = facts.openingStyle
+    ? `Openingsstijl voor de teaser: ${facts.openingStyle} (${openingStyleDescriptions[facts.openingStyle]}).`
+    : 'Kies zelf een opening die bij het product en de feiten past.'
+  const informalInstruction = facts.allowInformalOpening
+    ? 'Een informele opening mag hier, maximaal één en alleen in de teaser.'
+    : 'Geen informele opening in deze tekst.'
+
   return `Schrijf redactionele content voor dit product. Gebruik alleen onderstaande feiten.
+
+${openingInstruction}
+${informalInstruction}
 
 Titel: ${facts.title}
 Merk: ${facts.brand ?? 'onbekend'}
@@ -149,6 +195,25 @@ export function createAnthropicProvider(): EditorialContentProvider {
     }
 
     const warnings = checkContentStyle(parsed.data).map((issue) => `${issue.field}: ${issue.message}`)
+    const contentType: StyleContentType = facts.priceAnalysis?.hasPriceDrop ? 'DEAL' : 'GENERIC'
+    const styleWarnings = [
+      ...checkVoice(parsed.data.teaser, {
+        surface: 'TEASER',
+        contentType,
+        ...(facts.experienceType ? { experienceType: facts.experienceType } : {}),
+        ...(facts.allowInformalOpening === undefined
+          ? {}
+          : { allowInformalOpening: facts.allowInformalOpening }),
+      }),
+      ...checkVoice(parsed.data.longDescription, {
+        surface: 'BODY',
+        contentType,
+        ...(facts.experienceType ? { experienceType: facts.experienceType } : {}),
+      }),
+      ...checkVoice(parsed.data.seoTitle, { surface: 'SEO_TITLE', contentType }),
+      ...checkVoice(parsed.data.metaDescription, { surface: 'META_DESCRIPTION', contentType }),
+    ].map((issue) => `${issue.surface}: ${issue.message}`)
+
     return {
       content: parsed.data,
       provider: 'anthropic',
@@ -159,6 +224,11 @@ export function createAnthropicProvider(): EditorialContentProvider {
       warnings,
       model: env.ANTHROPIC_MODEL,
       evidenceSummary: buildEvidenceSummary(facts),
+      openingStyle: facts.openingStyle ?? null,
+      openingHash: openingHash(firstSentence(parsed.data.teaser)),
+      closingHash: openingHash(lastSentence(parsed.data.longDescription)),
+      styleVersion: STYLE_VERSION,
+      styleWarnings,
     }
   }
 

@@ -12,6 +12,7 @@ import { checkOverlap } from '@/lib/editorial/overlap'
 import { overlapCandidates, refreshIndexability } from '@/lib/editorial/service'
 import { suggestInternalLinks } from '@/lib/editorial/internal-links'
 import { buildTemplateDraft, findDraftProblems, type EditorialDraftFacts } from '@/lib/ai/editorial-draft'
+import { checkOpeningVariety, OPENING_HISTORY_WINDOW } from '@/lib/ai/style/openings'
 import { evidenceSourceTypeLabel } from '@/lib/database/editorial-queries'
 import { parseEditorialBriefs, slugFromTitle } from '@/lib/csv/editorial-brief'
 import { parseProductImport } from '@/lib/csv/product-import'
@@ -170,6 +171,10 @@ export async function updateEditorialPageAction(
       featuredReason: optionalText(formData.get('featuredReason'), 1000),
       featuredCaveat: optionalText(formData.get('featuredCaveat'), 1000),
       featuredAlternativeNote: optionalText(formData.get('featuredAlternativeNote'), 1000),
+      // Een redacteur heeft de tekst zelf aangeraakt; dat is de inhoudelijke
+      // controle die indexering vraagt.
+      humanEdited: true,
+      humanReviewedAt: new Date(),
     },
   })
 
@@ -372,7 +377,10 @@ export async function markFactCheckedAction(formData: FormData): Promise<void> {
 export async function markReviewedAction(formData: FormData): Promise<void> {
   await requireSession()
   const id = String(formData.get('pageId') ?? '')
-  await prisma.editorialPage.update({ where: { id }, data: { reviewedAt: new Date() } })
+  await prisma.editorialPage.update({
+    where: { id },
+    data: { reviewedAt: new Date(), humanReviewedAt: new Date() },
+  })
   await refreshIndexability(prisma, id)
   revalidatePath(`/admin/redactie/${id}`)
 }
@@ -515,6 +523,17 @@ export async function generateDraftAction(
     handsOnTested: page.sources.some((entry) => entry.source.sourceType === 'OWN_HANDS_ON_TEST'),
   }
 
+  // Openingen van de laatste twintig publicaties: hiermee voorkomen wij dat
+  // dezelfde stijl, dezelfde openingszin of dezelfde slotzin blijft terugkomen.
+  const recentPages = await prisma.editorialPage.findMany({
+    where: { id: { not: id }, openingHash: { not: null } },
+    orderBy: { updatedAt: 'desc' },
+    take: OPENING_HISTORY_WINDOW,
+    select: { openingStyle: true, openingHash: true, closingHash: true },
+  })
+  facts.key = page.slug
+  facts.recentOpenings = recentPages
+
   try {
     const result = buildTemplateDraft(facts)
     const problems = findDraftProblems(result.draft, facts)
@@ -522,6 +541,14 @@ export async function generateDraftAction(
       logger.warn('AI-draft geweigerd', { page: page.slug, problems })
       return { ok: false, message: `Draft geweigerd: ${problems.join('; ')}` }
     }
+    const varietyProblems = checkOpeningVariety(
+      {
+        openingStyle: result.openingStyle,
+        openingHash: result.openingHash,
+        closingHash: result.closingHash,
+      },
+      recentPages,
+    )
 
     await prisma.editorialPage.update({
       where: { id },
@@ -536,16 +563,31 @@ export async function generateDraftAction(
         generationProvider: result.provider,
         generationModel: result.model,
         generationWarnings: result.warnings,
+        openingStyle: result.openingStyle,
+        openingHash: result.openingHash,
+        closingHash: result.closingHash,
+        styleVersion: result.styleVersion,
+        styleWarnings: [...result.styleWarnings, ...varietyProblems.map((problem) => problem.message)],
         // Een draft is nooit publicabel zonder mens.
         status: 'NEEDS_REVIEW',
         reviewedAt: null,
+        humanReviewedAt: null,
+        humanEdited: false,
       },
     })
     await refreshIndexability(prisma, id)
     revalidatePath(`/admin/redactie/${id}`)
     return {
       ok: true,
-      message: 'Concept gemaakt. De pagina staat op NEEDS_REVIEW: lees de tekst na voordat je publiceert.',
+      message: [
+        'Concept gemaakt. De pagina staat op NEEDS_REVIEW: lees de tekst na voordat je publiceert.',
+        varietyProblems.length > 0
+          ? `Let op de variatie: ${varietyProblems.map((problem) => problem.message).join('; ')}`
+          : '',
+        result.styleWarnings.length > 0 ? `Stijl: ${result.styleWarnings.slice(0, 3).join('; ')}` : '',
+      ]
+        .filter((part) => part.length > 0)
+        .join(' '),
     }
   } catch (error) {
     return { ok: false, message: `Draft mislukt: ${errorMessage(error)}` }

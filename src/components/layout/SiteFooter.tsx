@@ -77,7 +77,7 @@ export function SiteFooter() {
         </div>
 
         <div className="flex flex-col gap-2 border-t border-line py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} HomeAndLivingDeals.nl — alle prijzen onder voorbehoud.</p>
+          <p>© {new Date().getFullYear()} HomeAndLivingDeals.nl. Alle prijzen onder voorbehoud.</p>
           <p>Prijzen komen van de aanbieder en worden dagelijks gecontroleerd.</p>
         </div>
       </Container>

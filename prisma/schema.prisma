@@ -116,6 +116,23 @@ enum EditionSection {
   DISCOVERY
 }
 
+/**
+ * Openingsstijl van een redactionele tekst. Bewaard om variatie te kunnen
+ * afdwingen: zie src/lib/ai/style/openings.ts.
+ */
+enum OpeningStyle {
+  PRICE_DROP
+  RECOGNIZABLE_PROBLEM
+  VISUAL_SURPRISE
+  USE_CASE_SCENE
+  GIFT_REACTION
+  DESIGN_OBSERVATION
+  PRACTICAL_DISCOVERY
+  DRY_HUMOR
+  DIRECT_FACT
+  EDITORIAL_QUESTION
+}
+
 enum ScrapeRunStatus {
   RUNNING
   SUCCESS
@@ -393,11 +410,34 @@ model EditorialContent {
    */
   evidenceSummary    String?
   experienceType     ExperienceType @default(NOT_TESTED)
+  /**
+   * Gekozen openingsstijl en een hash van de openingszin en de slotzin. Samen
+   * voorkomen zij dat teksten op elkaar gaan lijken.
+   */
+  openingStyle       OpeningStyle?
+  openingHash        String?
+  closingHash        String?
+  /** Versie van de stijlregels waaronder deze tekst is geschreven. */
+  styleVersion       String?
+  /** Stijlbevindingen die de redactie nog kan opvolgen. */
+  styleWarnings      Json           @default("[]")
   generatedAt        DateTime       @default(now())
   reviewedAt         DateTime?
+  /**
+   * Moment waarop een mens de tekst inhoudelijk heeft gecontroleerd. Zonder deze
+   * datum is machinegegenereerde tekst nooit indexeerbaar.
+   */
+  humanReviewedAt    DateTime?
+  /** Heeft een mens de tekst zelf aangepast? */
+  humanEdited        Boolean        @default(false)
+  /** Notities van de redacteur bij de beoordeling. */
+  reviewerNotes      String?
   updatedAt          DateTime       @updatedAt
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([humanReviewedAt])
+  @@index([generatedAt])
 }
 
 /**
@@ -620,6 +660,15 @@ model EditorialPage {
   heroImage                 String?
   /** Hash van de feiten waarop de tekst rust; wijzigt die, dan is review nodig. */
   contentFactsHash          String?
+  /** Openingsstijl en hashes; zie src/lib/ai/style/openings.ts. */
+  openingStyle              OpeningStyle?
+  openingHash               String?
+  closingHash               String?
+  styleVersion              String?
+  styleWarnings             Json              @default("[]")
+  /** Moment waarop een mens de tekst inhoudelijk controleerde. */
+  humanReviewedAt           DateTime?
+  humanEdited               Boolean           @default(false)
   generationProvider        String?
   generationModel           String?
   generationWarnings        Json              @default("[]")

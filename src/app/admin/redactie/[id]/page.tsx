@@ -68,6 +68,10 @@ export default async function AdminEditorialPageEditor({ params }: { params: Pro
     take: 200,
   })
 
+  const pageStyleWarnings = Array.isArray(page.styleWarnings)
+    ? (page.styleWarnings as unknown[]).filter((entry): entry is string => typeof entry === 'string')
+    : []
+
   const faqText = Array.isArray(page.frequentlyAskedQuestions)
     ? (page.frequentlyAskedQuestions as unknown[])
         .filter(
@@ -141,8 +145,47 @@ export default async function AdminEditorialPageEditor({ params }: { params: Pro
         ) : null}
         {evaluation && evaluation.overlap.level !== 'ok' ? (
           <p className="mt-2">
-            Overlap: {evaluation.overlap.reasons.join('; ')} — voorstel: {evaluation.overlap.recommendation}.
+            Overlap: {evaluation.overlap.reasons.join('; ')}. Voorstel: {evaluation.overlap.recommendation}.
           </p>
+        ) : null}
+      </section>
+
+      <section className="rounded-card border border-line bg-card p-4 text-sm">
+        <h2 className="font-display text-base font-extrabold">Schrijfstijl en review</h2>
+        <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div>
+            <dt className="font-medium text-ink">Opening</dt>
+            <dd className="text-muted">
+              {page.openingStyle ?? 'niet vastgelegd'}
+              {page.styleVersion ? ` · stijlregels ${page.styleVersion}` : ''}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium text-ink">Gegenereerd</dt>
+            <dd className="text-muted">
+              {page.generationProvider ?? 'door een mens geschreven'}
+              {page.generationModel ? ` (${page.generationModel})` : ''}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium text-ink">Inhoudelijk gecontroleerd</dt>
+            <dd className={page.humanReviewedAt ? 'text-deal' : 'text-accent'}>
+              {page.humanReviewedAt
+                ? `ja, op ${page.humanReviewedAt.toISOString().slice(0, 10)}`
+                : 'nog niet; gegenereerde tekst blijft dan noindex'}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium text-ink">Handmatig aangepast</dt>
+            <dd className="text-muted">{page.humanEdited ? 'ja' : 'nee'}</dd>
+          </div>
+        </dl>
+        {pageStyleWarnings.length > 0 ? (
+          <ul className="mt-3 space-y-1 text-xs text-accent" role="list">
+            {pageStyleWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
         ) : null}
       </section>
 
@@ -451,7 +494,7 @@ export default async function AdminEditorialPageEditor({ params }: { params: Pro
                 .filter((criterion) => !page.criteria.some((entry) => entry.criterionName === criterion.name))
                 .map((criterion) => (
                   <option key={criterion.name} value={criterion.name}>
-                    {criterion.label} — {criterion.explanation.slice(0, 60)}
+                    {criterion.label}: {criterion.explanation.slice(0, 60)}
                   </option>
                 ))}
             </select>

@@ -145,6 +145,8 @@ export async function evaluatePage(
     seoTitleUnique: titleDuplicates === 0,
     metaDescriptionUnique: descriptionDuplicates === 0,
     reviewedAt: page.reviewedAt,
+    humanReviewedAt: page.humanReviewedAt,
+    generationProvider: page.generationProvider,
     lastFactCheckedAt: page.lastFactCheckedAt,
     budgetMinCents: page.budgetMinCents,
     budgetMaxCents: page.budgetMaxCents,

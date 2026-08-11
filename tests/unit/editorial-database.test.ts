@@ -56,6 +56,7 @@ describe.skipIf(!hasDatabase)('redactionele pagina in de database', () => {
             promptVersion: 'test',
             aiProvider: 'test',
             reviewedAt: now,
+            humanReviewedAt: now,
           },
         },
         offers: {
@@ -360,6 +361,7 @@ describe.skipIf(!hasDatabase)('redactionele pagina in de database', () => {
             promptVersion: 'test',
             aiProvider: 'test',
             reviewedAt: now,
+            humanReviewedAt: now,
           },
         },
         offers: {

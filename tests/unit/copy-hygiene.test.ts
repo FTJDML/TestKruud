@@ -124,6 +124,50 @@ describe('de zin "Wij verkopen zelf niets"', () => {
   })
 })
 
+describe('leestekens in zichtbare teksten', () => {
+  /** Alleen de bestanden met zichtbare tekst; comments en code blijven buiten beschouwing. */
+  const uiFiles = files.filter(
+    (file) =>
+      (file.includes('/src/app/') || file.includes('/src/components/') || file.includes('/src/merchants/fixtures/')) &&
+      (file.endsWith('.tsx') || file.endsWith('.ts')),
+  )
+
+  /** Tekst tussen quotes en in JSX, zonder commentaarregels. */
+  function visibleText(contents: string): string {
+    return contents
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trim()
+        return !trimmed.startsWith('//') && !trimmed.startsWith('*') && !trimmed.startsWith('/*')
+      })
+      .join('\n')
+  }
+
+  it('gebruikt geen em dash als tussenzin in zichtbare tekst', () => {
+    const hits: string[] = []
+    for (const file of uiFiles) {
+      const text = visibleText(readFileSync(file, 'utf8'))
+      // Een losse "—" als teken voor "geen waarde" mag; als tussenzin niet.
+      if (/[a-zé)] — [a-z]/i.test(text)) hits.push(relative(root, file))
+    }
+    expect(hits).toEqual([])
+  })
+
+  it('gebruikt geen en dash of koppelteken als tussenzin', () => {
+    const hits: string[] = []
+    for (const file of uiFiles) {
+      const text = visibleText(readFileSync(file, 'utf8'))
+      if (/[a-zé] – [a-z]/i.test(text)) hits.push(`${relative(root, file)} (en dash)`)
+    }
+    expect(hits).toEqual([])
+  })
+
+  it('zet geen uitroeptekens in de demo-fixtures', () => {
+    const text = JSON.stringify(demoProducts)
+    expect(text).not.toContain('!')
+  })
+})
+
 describe('vaste teksten in de UI', () => {
   function read(path: string): string {
     return readFileSync(join(root, path), 'utf8')

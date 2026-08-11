@@ -44,7 +44,7 @@ export default async function AdminEditorialPages() {
         <p className="mt-1 max-w-3xl text-sm text-muted">
           {pages.length} pagina&apos;s, waarvan {pages.filter((page) => page.status === 'PUBLISHED').length}{' '}
           gepubliceerd en {pages.filter((page) => page.indexable).length} indexeerbaar. Of een pagina
-          indexeerbaar is, bepaalt de quality gate — dat is geen knop.
+          indexeerbaar is, bepaalt de quality gate; dat is geen knop.
         </p>
       </div>
 

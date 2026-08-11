@@ -76,6 +76,9 @@ describe.skipIf(!hasDatabase)('publieke toegang per productstatus', () => {
                   promptVersion: 'test',
                   aiProvider: 'test',
                   reviewedAt: new Date(),
+                  // Gegenereerde tekst is pas indexeerbaar na een menselijke
+                  // controle; die zetten wij hier expliciet.
+                  humanReviewedAt: new Date(),
                 },
               },
             }),

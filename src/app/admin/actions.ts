@@ -100,6 +100,35 @@ export async function updateEditorialAction(formData: FormData): Promise<void> {
       tags: splitList(parsed.tags),
       aiProvider: 'redactie',
       reviewedAt: new Date(),
+      // Een redacteur heeft de tekst nu zelf aangeraakt: dat geldt als de
+      // inhoudelijke controle die indexering vraagt.
+      humanEdited: true,
+      humanReviewedAt: new Date(),
+      reviewerNotes: (() => {
+        const notes = String(formData.get('reviewerNotes') ?? '').trim()
+        return notes.length > 0 ? notes.slice(0, 2000) : null
+      })(),
+    },
+  })
+  revalidatePath(`/admin/producten/${productId}`)
+  revalidatePath('/')
+}
+
+/**
+ * Keurt gegenereerde tekst inhoudelijk goed zonder haar te wijzigen. Zonder deze
+ * stap blijft de productpagina browsebaar maar `noindex`: wij publiceren geen
+ * indexeerbare tekst die niemand heeft nagelezen.
+ */
+export async function approveContentAction(formData: FormData): Promise<void> {
+  await requireSession()
+  const productId = String(formData.get('productId') ?? '')
+  const notes = String(formData.get('reviewerNotes') ?? '').trim()
+  await prisma.editorialContent.update({
+    where: { productId },
+    data: {
+      reviewedAt: new Date(),
+      humanReviewedAt: new Date(),
+      ...(notes.length > 0 ? { reviewerNotes: notes.slice(0, 2000) } : {}),
     },
   })
   revalidatePath(`/admin/producten/${productId}`)
