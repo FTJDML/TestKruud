@@ -1,4 +1,4 @@
-import { publicConfig } from '@/lib/env'
+import { adsEnabled, appEnv, publicConfig } from '@/lib/env'
 import { cn } from '@/lib/utils'
 import { AdImpression } from '@/components/ads/AdImpression'
 
@@ -36,9 +36,11 @@ const variantLabel: Record<AdVariant, string> = {
  * Advertenties lijken nooit op productkaarten en bedekken nooit de deal-CTA.
  */
 export function AdSlot({ slot, variant, className }: Props) {
-  const isDevelopment = process.env.NODE_ENV === 'development'
+  const isDevelopment = appEnv() === 'development'
 
-  if (!publicConfig.adsEnabled) {
+  // ADS_ENABLED is de server-side hoofdschakelaar; NEXT_PUBLIC_ADS_ENABLED
+  // bestaat alleen voor clientcomponenten en moet dezelfde waarde hebben.
+  if (!adsEnabled()) {
     if (!isDevelopment) return null
     return (
       <aside

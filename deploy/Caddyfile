@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# Caddy als reverse proxy met automatische HTTPS.
+#
+# SITE_DOMAIN en ACME_EMAIL komen uit .env (zie docker-compose.production.yml).
+# Caddy vraagt zelf een Let's Encrypt-certificaat aan en vernieuwt het; daarvoor
+# moeten poort 80 en 443 van buiten bereikbaar zijn en moet de DNS van
+# SITE_DOMAIN naar deze server wijzen.
+# ---------------------------------------------------------------------------
+{
+	email {$ACME_EMAIL}
+	# Zet de admin-API op localhost binnen de container; de healthcheck van de
+	# compose-service gebruikt haar.
+	admin 127.0.0.1:2019
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	# De app is de enige upstream. Caddy stuurt geen verkeer meer wanneer
+	# /api/health niet meer antwoordt.
+	reverse_proxy app:3000 {
+		health_uri /api/health
+		health_interval 30s
+		health_timeout 5s
+	}
+
+	header {
+		# HSTS hoort bij de TLS-terminator. De app zet dezelfde header, zodat
+		# een opzet zonder Caddy ook beschermd is.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		-Server
+		-X-Powered-By
+	}
+
+	# Technische endpoints en uitgaande links mogen nooit gecacht worden.
+	@nocache path /api/* /go/*
+	header @nocache Cache-Control "no-store"
+
+	# Optioneel: beperk het adminpaneel tot bekende IP-adressen. Vul de blokken
+	# in en verwijder het commentaar.
+	# @adminIntern {
+	# 	path /admin*
+	# 	remote_ip 203.0.113.0/24
+	# }
+	# @adminExtern path /admin*
+	# handle @adminExtern {
+	# 	respond "Niet beschikbaar" 403
+	# }
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# HTTP wordt automatisch naar HTTPS omgeleid; alleen de ACME-uitdaging gaat
+# over poort 80. Caddy regelt dat zelf en heeft hier geen extra blok nodig.

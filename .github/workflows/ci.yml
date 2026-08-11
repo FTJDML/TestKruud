@@ -1,0 +1,65 @@
+# ---------------------------------------------------------------------------
+# CI: install, lint, typecheck, unit tests en een productiebuild.
+#
+# Bewust geen secrets en bewust geen deploystap. De build heeft geen database
+# nodig: alle databasegestuurde pagina's worden per request gerenderd.
+# ---------------------------------------------------------------------------
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kwaliteit:
+    name: Lint, typecheck, tests en build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Vaste, ongevaarlijke waarden. APP_ENV blijft development, zodat de
+      # productiecontrole op secrets niet in CI hoeft te slagen.
+      APP_ENV: test
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      DEMO_CONTENT_ENABLED: 'true'
+      SEARCH_ENGINE_INDEXING_ENABLED: 'false'
+      ADS_ENABLED: 'false'
+      AFFILIATE_LINKS_ENABLED: 'false'
+      CONTENT_PROVIDER: template
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Dependencies installeren
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Productiebuild
+        run: pnpm build

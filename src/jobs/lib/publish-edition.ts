@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client'
+import { demoContentEnabled } from '@/lib/env'
 import { editionDate } from '@/lib/deals/edition-date'
 import { isPublishableSelection, selectEdition, type EditionCandidate } from '@/lib/deals/edition'
 import { computeDealPricing } from '@/lib/pricing/deal'
@@ -19,7 +20,13 @@ export async function collectEditionCandidates(
   now: Date = new Date(),
 ): Promise<EditionCandidate[]> {
   const products = await prisma.product.findMany({
-    where: { status: 'PUBLISHED', editorial: { isNot: null } },
+    // Zonder demo-inhoud horen demo-producten ook niet in de editie: ze zijn
+    // publiek onzichtbaar en zouden een lege homepage opleveren.
+    where: {
+      status: 'PUBLISHED',
+      editorial: { isNot: null },
+      ...(demoContentEnabled() ? {} : { isDemo: false }),
+    },
     include: {
       editorial: { select: { id: true } },
       offers: {

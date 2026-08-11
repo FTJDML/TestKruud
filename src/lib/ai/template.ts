@@ -4,10 +4,11 @@ import type {
   EditorialGenerationResult,
   ProductFacts,
 } from '@/lib/ai/provider'
+import { looksDutch } from '@/lib/ai/language'
 import { checkContentStyle, editorialContentSchema } from '@/lib/ai/schema'
 import { truncate, wordCount } from '@/lib/utils'
 
-export const TEMPLATE_PROMPT_VERSION = 'template-2026-08-nl-2'
+export const TEMPLATE_PROMPT_VERSION = 'template-2026-08-nl-3'
 
 /** Maximale koplengte volgens de redactionele richtlijnen. */
 const HEADLINE_MAX_LENGTH = 75
@@ -171,6 +172,11 @@ function pickVariant<T>(items: readonly T[], seed: number): T {
   return items[seed % items.length]!
 }
 
+/** Zelfde varianten, andere startpositie per product. */
+function rotate<T>(items: readonly T[], seed: number): T[] {
+  return items.map((_, index) => items[(seed + index) % items.length]!)
+}
+
 /**
  * Kiest een invalshoek die met deze productnaam nog binnen de koplengte past.
  * Zo hoeft de kop niet te worden afgekapt bij een lange brontitel.
@@ -219,7 +225,11 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
   const name = subject(facts)
   const angle = pickAngle(voice.angles, seed, name, HEADLINE_MAX_LENGTH)
   const brand = facts.brand ? `${facts.brand} ` : ''
-  const source = facts.shortSourceDescription?.trim() ?? ''
+  // Brondata is vaak Engels. Een Engelse leverancierszin midden in een
+  // Nederlandse alinea leest slecht en wordt door de kwaliteitspoort geblokkeerd,
+  // dus die nemen we niet over.
+  const rawSource = facts.shortSourceDescription?.trim() ?? ''
+  const source = rawSource.length > 0 && looksDutch(rawSource) ? rawSource : ''
   const specEntries = Object.entries(facts.specifications ?? {}).slice(0, 3)
   const specSentence =
     specEntries.length > 0
@@ -236,38 +246,93 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
       // voorzetsel, wat anders "valt op op een avond" oplevert.
       `Deze ${name.toLowerCase()} bewijst zich ${voice.situation}.`,
       source.length > 0 ? `${source.replace(/\s+$/, '').replace(/\.$/, '')}.` : '',
-      `Het is ${angle}, en dat merk je vooral in het dagelijks gebruik.`,
-      `${facts.merchantName} levert het product; wij houden de prijs in de gaten.`,
+      pickVariant(
+        [
+          `Het is ${angle}, en dat merk je vooral in het dagelijks gebruik.`,
+          `Wat het bijzonder maakt: het is ${angle}.`,
+          `Onder de streep is het ${angle}, zonder dat je er iets voor hoeft te leren.`,
+        ],
+        seed,
+      ),
+      pickVariant(
+        [
+          `${facts.merchantName} levert het product; wij houden de prijs in de gaten.`,
+          `Te koop bij ${facts.merchantName}; wij controleren dagelijks wat het daar kost.`,
+          `${facts.merchantName} verzorgt de verkoop, wij het prijsoverzicht.`,
+        ],
+        seed,
+      ),
     ].filter((sentence) => sentence.length > 0),
     45,
     70,
-    [
-      'Een vondst die je waarschijnlijk niet zocht en daarna moeilijk vergeet.',
-      'Precies het soort product waarvan je vijf minuten eerder nog niet wist dat je het wilde.',
-      'Handig genoeg om te gebruiken, opvallend genoeg om over te vertellen.',
-    ],
+    rotate(
+      [
+        'Een vondst die je waarschijnlijk niet zocht en daarna moeilijk vergeet.',
+        'Precies het soort product waarvan je vijf minuten eerder nog niet wist dat je het wilde.',
+        'Handig genoeg om te gebruiken, opvallend genoeg om over te vertellen.',
+      ],
+      seed,
+    ),
   )
 
   const longDescription = fitWords(
     [
-      `Op het eerste gezicht lijkt de ${name.toLowerCase()} een gewoon product in de categorie ${facts.primaryCategory.toLowerCase()}.`,
-      `Kijk je beter, dan blijkt het ${angle}.`,
+      pickVariant(
+        [
+          `Op het eerste gezicht lijkt de ${name.toLowerCase()} een gewoon product in de categorie ${facts.primaryCategory.toLowerCase()}.`,
+          `In een rij ${facts.primaryCategory.toLowerCase()} valt de ${name.toLowerCase()} niet meteen op.`,
+          `De ${name.toLowerCase()} ziet eruit als een alledaags product voor ${facts.primaryCategory.toLowerCase()}.`,
+        ],
+        seed,
+      ),
+      pickVariant(
+        [
+          `Kijk je beter, dan blijkt het ${angle}.`,
+          `Bij nader inzien is het ${angle}.`,
+          `Wie doorkijkt, ziet ${angle}.`,
+        ],
+        seed + 1,
+      ),
       source.length > 0 ? `${source.replace(/\.$/, '')}.` : '',
       specSentence,
-      `Het verschil zit in het moment waarop je het gebruikt: ${voice.situation} merk je waarom dit product bestaat.`,
-      `Wij selecteren producten op originaliteit, bruikbaarheid en verhaal, niet op de hoogte van een commissie.`,
-      `${facts.merchantName} verkoopt en verzendt dit product; wij verkopen zelf niets en controleren alleen de prijs.`,
-      `Bekijk de productpagina van de aanbieder voor de volledige specificaties, garantie en levertijd.`,
-      `Zo weet je precies wat je in huis haalt voordat je op de dealknop drukt.`,
+      pickVariant(
+        [
+          `Het verschil zit in het moment waarop je het gebruikt: ${voice.situation} merk je waarom dit product bestaat.`,
+          `Vooral ${voice.situation} wordt duidelijk waarom iemand dit heeft gemaakt.`,
+          `Het komt tot zijn recht ${voice.situation}, en de rest van de week staat het er gewoon.`,
+        ],
+        seed,
+      ),
+      // Eén vaste openheid: wij verkopen niets en controleren alleen de prijs.
+      pickVariant(
+        [
+          `${facts.merchantName} verkoopt en verzendt dit product; wij verkopen zelf niets en controleren alleen de prijs.`,
+          `De verkoop en verzending liggen bij ${facts.merchantName}. Wij houden bij wat het kost en verkopen zelf niets.`,
+          `Wij verkopen niets zelf: ${facts.merchantName} levert, wij controleren de prijs en de voorraad.`,
+        ],
+        seed,
+      ),
+      pickVariant(
+        [
+          `Specificaties, garantie en levertijd staan op de productpagina van de aanbieder.`,
+          `Voor maten, garantie en levertijd is de aanbieder de bron; die gegevens verzinnen wij niet.`,
+          `Wat er precies bij zit en hoe snel het komt, lees je bij de aanbieder zelf.`,
+        ],
+        seed + 2,
+      ),
     ].filter((sentence) => sentence.length > 0),
     120,
     220,
-    [
-      'Dat maakt het een typische vondst voor deze site: geen dagelijkse aankoop, wel iets om te onthouden.',
-      'Wie zijn interieur, keuken of avondroutine een klein beetje wil bijstellen, heeft hier genoeg aan.',
-      'En mocht je hem niet nodig hebben: dat overkomt ons met de leukste producten ook regelmatig.',
-      'De prijs die je hier ziet komt van de aanbieder en wordt dagelijks opnieuw gecontroleerd.',
-    ],
+    rotate(
+      [
+        'Dat maakt het een typische vondst voor deze site: geen dagelijkse aankoop, wel iets om te onthouden.',
+        'Wie zijn interieur, keuken of avondroutine een klein beetje wil bijstellen, heeft hier genoeg aan.',
+        'En mocht je hem niet nodig hebben: dat overkomt ons met de leukste producten ook regelmatig.',
+        'De prijs die je hier ziet komt van de aanbieder en wordt dagelijks opnieuw gecontroleerd.',
+        'Bewaar hem met het hartje als je er nog even over wil nadenken.',
+      ],
+      seed,
+    ),
   )
 
   const payload = {

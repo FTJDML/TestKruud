@@ -29,14 +29,11 @@ type Props = { params: Promise<{ slug: string }> }
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const product = await getProductBySlug(slug)
-  if (!product) {
-    return buildMetadata({
-      title: 'Product niet gevonden',
-      description: 'Deze productpagina bestaat niet of is verwijderd.',
-      path: `/product/${slug}`,
-      noindex: true,
-    })
-  }
+  // Bewust hier en niet pas in de pagina: `(site)/loading.tsx` maakt een
+  // Suspense-grens, en na de eerste flush kan de statuscode niet meer op 404
+  // worden gezet. Dat zou een soft 404 opleveren.
+  if (!product) notFound()
+
   return buildMetadata({
     title: product.seoTitle,
     description: product.metaDescription,
@@ -63,7 +60,8 @@ export default async function ProductPage({ params }: Props) {
 
   return (
     <>
-      <JsonLd data={[productJsonLd(product), breadcrumbJsonLd(crumbs)]} />
+      {/* productJsonLd levert null bij demo-inhoud of zonder geldige prijs. */}
+      <JsonLd data={[productJsonLd(product), breadcrumbJsonLd(crumbs)].filter((entry) => entry !== null)} />
       <ProductViewTracker productId={product.id} />
 
       <Container className="pt-6">

@@ -76,9 +76,96 @@ describe('kortingsberekening', () => {
   })
 
   it('maakt een badge alleen bij een echte korting', () => {
-    expect(discountBadgeLabel(25)).toBe('-25%')
-    expect(discountBadgeLabel(0)).toBeNull()
+    const deal = computeDealPricing(
+      {
+        currentPrice: '299.00',
+        referencePrice: '399.00',
+        referencePriceType: 'MERCHANT_WAS_PRICE',
+        checkedAt: fresh,
+      },
+      now,
+    )
+    expect(discountBadgeLabel(deal)).toBe('-25%')
     expect(discountBadgeLabel(null)).toBeNull()
+
+    // Zonder geldige referentieprijs bestaat er geen korting om te tonen.
+    const discovery = computeDealPricing({ currentPrice: '299.00', checkedAt: fresh }, now)
+    expect(discountBadgeLabel(discovery)).toBeNull()
+
+    // Een uitverkochte aanbieding is geen DEAL en krijgt dus ook geen badge.
+    const soldOut = computeDealPricing(
+      {
+        currentPrice: '299.00',
+        referencePrice: '399.00',
+        referencePriceType: 'MERCHANT_WAS_PRICE',
+        inStock: false,
+        checkedAt: fresh,
+      },
+      now,
+    )
+    expect(soldOut.discountPercentage).toBe(25)
+    expect(discountBadgeLabel(soldOut)).toBeNull()
+  })
+})
+
+describe('DEAL versus DISCOVERY', () => {
+  const dealInput = {
+    currentPrice: '299.00',
+    referencePrice: '399.00',
+    referencePriceType: 'MERCHANT_WAS_PRICE',
+    inStock: true,
+    checkedAt: fresh,
+  } as const
+
+  it('is een DEAL met alle zes voorwaarden', () => {
+    const pricing = computeDealPricing(dealInput, now)
+    expect(pricing.kind).toBe('DEAL')
+    expect(pricing.hasValidReferencePrice).toBe(true)
+    expect(pricing.isActive).toBe(true)
+    expect(pricing.referencePrice).not.toBeNull()
+    expect(pricing.discountPercentage).toBe(25)
+  })
+
+  it('is een DISCOVERY zonder referentieprijs', () => {
+    const pricing = computeDealPricing({ currentPrice: '299.00', checkedAt: fresh }, now)
+    expect(pricing.kind).toBe('DISCOVERY')
+    expect(pricing.referencePrice).toBeNull()
+    expect(pricing.savings).toBeNull()
+    expect(pricing.discountPercentage).toBeNull()
+    expect(pricing.qualifiesAsDeal).toBe(false)
+  })
+
+  it('is een DISCOVERY zonder referentieprijstype', () => {
+    const pricing = computeDealPricing({ ...dealInput, referencePriceType: null }, now)
+    expect(pricing.kind).toBe('DISCOVERY')
+    expect(pricing.referencePrice).toBeNull()
+  })
+
+  it('is een DISCOVERY wanneer de referentieprijs niet hoger is', () => {
+    const pricing = computeDealPricing({ ...dealInput, referencePrice: '299.00' }, now)
+    expect(pricing.kind).toBe('DISCOVERY')
+  })
+
+  it('is een DISCOVERY wanneer de prijs niet recent is gecontroleerd', () => {
+    const pricing = computeDealPricing(
+      { ...dealInput, checkedAt: new Date(now.getTime() - STALE_AFTER_MS - 1_000) },
+      now,
+    )
+    expect(pricing.kind).toBe('DISCOVERY')
+    expect(pricing.isStale).toBe(true)
+  })
+
+  it('is een DISCOVERY wanneer het product uitverkocht is', () => {
+    const pricing = computeDealPricing({ ...dealInput, inStock: false }, now)
+    expect(pricing.kind).toBe('DISCOVERY')
+  })
+
+  it('houdt een DEAL met te weinig korting buiten de dealssecties', () => {
+    const pricing = computeDealPricing({ ...dealInput, referencePrice: '305.00' }, now)
+    // Wel een echte van-prijs, dus DEAL in de presentatie...
+    expect(pricing.kind).toBe('DEAL')
+    // ... maar te weinig korting voor de dagfeed en het dealfilter.
+    expect(pricing.qualifiesAsDeal).toBe(false)
   })
 })
 

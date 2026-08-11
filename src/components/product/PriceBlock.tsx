@@ -11,12 +11,14 @@ type Props = {
 
 /**
  * Prijsblok. Alle bedragen en percentages komen uit de prijsmodule en zijn
- * server-side geformatteerd volgens nl-NL. Zonder geldige vergelijkingsprijs
- * tonen we geen van-prijs, geen besparing en geen percentage.
+ * server-side geformatteerd volgens nl-NL. Alleen een DEAL toont een
+ * doorgestreepte van-prijs, een besparing en een percentage; een DISCOVERY
+ * toont uitsluitend de actuele prijs.
  */
 export function PriceBlock({ pricing, merchantName, size = 'card', className }: Props) {
   const priceSize =
     size === 'hero' ? 'text-4xl sm:text-5xl' : size === 'detail' ? 'text-3xl sm:text-4xl' : 'text-2xl'
+  const isDeal = pricing.kind === 'DEAL'
 
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
@@ -27,12 +29,12 @@ export function PriceBlock({ pricing, merchantName, size = 'card', className }: 
         <span className={cn('font-display font-extrabold tracking-tight text-ink', priceSize)}>
           {pricing.currentPrice}
         </span>
-        {pricing.referencePrice ? (
+        {isDeal && pricing.referencePrice ? (
           <span className="text-sm text-muted line-through">{pricing.referencePrice}</span>
         ) : null}
       </div>
 
-      {pricing.savings && pricing.discountPercentage !== null ? (
+      {isDeal && pricing.savings && pricing.discountPercentage !== null ? (
         <p className="text-sm font-semibold text-deal">
           Bespaar {pricing.savings} · {pricing.discountPercentage}%
         </p>
@@ -40,7 +42,7 @@ export function PriceBlock({ pricing, merchantName, size = 'card', className }: 
         <p className="text-sm text-muted">Huidige aanbiedersprijs</p>
       )}
 
-      {pricing.referencePriceLabel ? (
+      {isDeal && pricing.referencePriceLabel ? (
         <p className="text-xs text-muted">{pricing.referencePriceLabel}</p>
       ) : (
         <p className="text-xs text-muted">Geen betrouwbare vergelijkingsprijs bekend</p>

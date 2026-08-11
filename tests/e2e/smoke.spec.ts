@@ -137,6 +137,35 @@ test.describe('productpagina', () => {
     const robots = await page.locator('meta[name="robots"]').first().getAttribute('content')
     expect(robots).toContain('noindex')
   })
+
+  test('een niet-bestaand product geeft een echte 404', async ({ page }) => {
+    const response = await page.goto('/product/dit-product-bestaat-niet')
+    expect(response?.status()).toBe(404)
+  })
+})
+
+test.describe('DEAL en DISCOVERY', () => {
+  test('toont beide CTA-varianten met de juiste prijsinformatie', async ({ page }) => {
+    // De editie op de homepage bestaat uit deals: die hebben een van-prijs.
+    await page.goto('/')
+    const dealCta = page.locator('a[data-cta="deal"]').first()
+    await expect(dealCta).toBeVisible()
+    await expect(dealCta).toContainText('Bekijk deal')
+
+    const dealCard = page.locator('article', { has: page.locator('a[data-cta="deal"]') }).first()
+    await expect(dealCard.locator('.line-through').first()).toBeVisible()
+    await expect(dealCard.getByText(/Bespaar/).first()).toBeVisible()
+
+    // Nieuw ontdekt bevat producten zonder betrouwbare vergelijkingsprijs.
+    await page.goto('/nieuw')
+    const discoveryCta = page.locator('a[data-cta="discovery"]').first()
+    await expect(discoveryCta).toBeVisible()
+    await expect(discoveryCta).toContainText('Bekijk product')
+
+    const discoveryCard = page.locator('article', { has: page.locator('a[data-cta="discovery"]') }).first()
+    await expect(discoveryCard.locator('.line-through')).toHaveCount(0)
+    await expect(discoveryCard.getByText('Geen betrouwbare vergelijkingsprijs bekend')).toBeVisible()
+  })
 })
 
 test.describe('navigatie', () => {

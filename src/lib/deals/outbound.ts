@@ -13,10 +13,17 @@ export function isSafeDestination(url: string): boolean {
   }
 }
 
-/** Affiliate-URL heeft voorrang zodra die bestaat; anders de gewone bestemming. */
-export function resolveDestination(offer: {
-  affiliateUrl?: string | null
-  destinationUrl: string
-}): string {
-  return offer.affiliateUrl && offer.affiliateUrl.length > 0 ? offer.affiliateUrl : offer.destinationUrl
+/**
+ * Affiliate-URL heeft voorrang zodra die bestaat en affiliate-links aan staan.
+ * Met `AFFILIATE_LINKS_ENABLED=false` gaat een bezoeker altijd rechtstreeks naar
+ * de gewone bestemming, ook wanneer er al een affiliate-URL is opgeslagen.
+ */
+export function resolveDestination(
+  offer: { affiliateUrl?: string | null; destinationUrl: string },
+  options: { affiliateLinksEnabled?: boolean } = {},
+): string {
+  const useAffiliate = options.affiliateLinksEnabled !== false
+  return useAffiliate && offer.affiliateUrl && offer.affiliateUrl.length > 0
+    ? offer.affiliateUrl
+    : offer.destinationUrl
 }

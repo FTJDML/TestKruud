@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/database/client'
 import { computeDealPricing } from '@/lib/pricing/deal'
 import { isSafeDestination, resolveDestination } from '@/lib/deals/outbound'
+import { affiliateLinksEnabled } from '@/lib/env'
 import { readVisitorId } from '@/lib/saves/visitor'
 import { trackServerEvent } from '@/lib/analytics/events'
 import { errorMessage, logger } from '@/lib/logger'
@@ -36,7 +37,7 @@ export async function GET(request: Request, context: { params: Promise<{ offerId
     return NextResponse.redirect(new URL(`/product/${offer.product.slug}`, request.url), 307)
   }
 
-  const target = resolveDestination(offer)
+  const target = resolveDestination(offer, { affiliateLinksEnabled: affiliateLinksEnabled() })
   if (!isSafeDestination(target)) {
     logger.error('Onveilige bestemming geweigerd', { offerId, target })
     return NextResponse.json({ error: 'Ongeldige bestemming.' }, { status: 400 })

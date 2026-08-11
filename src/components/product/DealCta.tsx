@@ -12,9 +12,12 @@ type Props = {
 }
 
 /**
- * Externe deal-CTA. Loopt altijd via /go/[offerId], zodat affiliate-links later
+ * Externe CTA. Loopt altijd via /go/[offerId], zodat affiliate-links later
  * centraal kunnen worden toegevoegd zonder de frontend aan te passen.
  * Is de aanbieding stale of uitverkocht, dan verdwijnt de knop.
+ *
+ * Een DEAL krijgt de koraalrode knop "Bekijk deal", een DISCOVERY de rustige
+ * outline-knop "Bekijk product".
  */
 export function DealCta({ offerId, pricing, source, merchantName, size = 'card', className }: Props) {
   if (!offerId || !pricing) {
@@ -38,18 +41,24 @@ export function DealCta({ offerId, pricing, source, merchantName, size = 'card',
     )
   }
 
+  const isDeal = pricing.kind === 'DEAL'
+
   return (
     <a
       href={`/go/${offerId}?source=${encodeURIComponent(source)}`}
       target="_blank"
       rel="sponsored nofollow noopener"
+      data-cta={isDeal ? 'deal' : 'discovery'}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-pill bg-accent font-semibold text-white transition-colors hover:bg-accent-hover',
+        'inline-flex items-center justify-center gap-2 rounded-pill font-semibold transition-colors',
+        isDeal
+          ? 'bg-accent text-white hover:bg-accent-hover'
+          : 'border border-ink/15 bg-card text-ink hover:border-ink hover:bg-canvas',
         size === 'large' ? 'min-h-12 px-6 text-base' : 'min-h-11 px-5 text-sm',
         className,
       )}
     >
-      Bekijk deal
+      {isDeal ? 'Bekijk deal' : 'Bekijk product'}
       <ArrowUpRight aria-hidden className="size-4" />
       <span className="sr-only">bij {merchantName}, opent in een nieuw tabblad</span>
     </a>

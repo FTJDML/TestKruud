@@ -22,7 +22,7 @@ export function StickyDealBar({
         <div>
           <p className="font-display text-lg font-extrabold leading-none text-ink">{pricing.currentPrice}</p>
           <p className="mt-0.5 text-[11px] text-muted">
-            {pricing.referencePrice ? `van ${pricing.referencePrice} · ` : ''}
+            {pricing.kind === 'DEAL' && pricing.referencePrice ? `van ${pricing.referencePrice} · ` : ''}
             bij {merchantName}
           </p>
         </div>

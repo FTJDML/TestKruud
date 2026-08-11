@@ -72,3 +72,33 @@ const odooDemoCatalog: LiveSource = {
 }
 
 export const liveSources: readonly LiveSource[] = [odooDemoCatalog]
+
+/** Bronnen die demo-inhoud leveren en dus niet in productie horen. */
+const demoSourceSlugs = new Set(
+  liveSources
+    .filter((source) => {
+      const config = source.configuration as { markAsDemo?: unknown }
+      return config.markAsDemo === true
+    })
+    .map((source) => source.slug),
+)
+
+/**
+ * Levert deze merchant demo-inhoud? Fixtures altijd, en verder elke bron die
+ * `markAsDemo` gebruikt. In productie worden deze bronnen niet ingelezen en
+ * blijven hun producten onzichtbaar (zie `DEMO_CONTENT_ENABLED`).
+ */
+export function isDemoMerchant(merchant: {
+  slug: string
+  sourceType: SourceType
+  configuration?: unknown
+}): boolean {
+  if (merchant.sourceType === 'FIXTURE') return true
+  if (demoSourceSlugs.has(merchant.slug)) return true
+  const config = merchant.configuration
+  return (
+    typeof config === 'object' &&
+    config !== null &&
+    (config as { markAsDemo?: unknown }).markAsDemo === true
+  )
+}

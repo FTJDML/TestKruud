@@ -4,6 +4,7 @@ import { prisma } from '@/lib/database/client'
 import { getSavedProductIds } from '@/lib/database/queries'
 import { RateLimiter } from '@/lib/scraping/rate-limit'
 import { readVisitorId } from '@/lib/saves/visitor'
+import { checkSameOrigin } from '@/lib/security/csrf'
 import { trackServerEvent } from '@/lib/analytics/events'
 import { errorMessage, logger } from '@/lib/logger'
 
@@ -12,9 +13,15 @@ const limiter = new RateLimiter(30, 60)
 
 const bodySchema = z.object({ productId: z.string().min(1).max(60) })
 
-async function requireVisitor(): Promise<
+async function requireVisitor(request: Request): Promise<
   { visitorId: string } | { response: NextResponse }
 > {
+  // Alleen verzoeken van de eigen site mogen iets wijzigen (CSRF).
+  const origin = checkSameOrigin(request)
+  if (!origin.ok) {
+    return { response: NextResponse.json({ error: 'Ongeldige herkomst.' }, { status: 403 }) }
+  }
+
   const visitorId = await readVisitorId()
   if (!visitorId) {
     return {
@@ -38,7 +45,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const guard = await requireVisitor()
+  const guard = await requireVisitor(request)
   if ('response' in guard) return guard.response
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null))
@@ -77,7 +84,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const guard = await requireVisitor()
+  const guard = await requireVisitor(request)
   if ('response' in guard) return guard.response
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null))

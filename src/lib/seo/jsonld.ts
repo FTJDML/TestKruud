@@ -53,9 +53,16 @@ export function breadcrumbJsonLd(items: Array<{ name: string; path: string }>): 
   }
 }
 
-/** Product met Offer. Alleen een prijs wanneer de aanbieding actief is. */
-export function productJsonLd(product: ProductDetailView): JsonLdObject {
+/**
+ * Product met Offer. Structured data wordt alleen toegevoegd bij echte,
+ * geldige productdata: geen demo-inhoud en geen product zonder actuele prijs.
+ * Levert `null` wanneer er niets te claimen valt.
+ */
+export function productJsonLd(product: ProductDetailView): JsonLdObject | null {
   const pricing = product.pricing
+  if (product.isDemo) return null
+  if (!pricing || !product.offerId || pricing.currentPriceCents <= 0) return null
+
   const offers =
     pricing && product.offerId
       ? {
@@ -85,13 +92,15 @@ export function productJsonLd(product: ProductDetailView): JsonLdObject {
   }
 }
 
+/** Lijst met producten. Demo-inhoud staat er nooit in: die is noindex. */
 export function itemListJsonLd(products: readonly ProductCardView[], name: string): JsonLdObject {
+  const real = products.filter((product) => !product.isDemo)
   return {
     '@context': 'https://schema.org',
     '@type': 'ItemList',
     name,
-    numberOfItems: products.length,
-    itemListElement: products.map((product, index) => ({
+    numberOfItems: real.length,
+    itemListElement: real.map((product, index) => ({
       '@type': 'ListItem',
       position: index + 1,
       url: absoluteUrl(`/product/${product.slug}`),

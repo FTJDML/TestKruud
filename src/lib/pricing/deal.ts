@@ -18,7 +18,21 @@ export type OfferPricingInput = {
   promotionEndsAt?: Date | string | null
 }
 
+/**
+ * Twee soorten producten, met een eigen presentatie:
+ *
+ * - `DEAL`: actuele prijs, geldige referentieprijs met type, huidige prijs
+ *   lager dan de referentieprijs, recent gecontroleerd en op voorraad. Toont
+ *   een doorgestreepte van-prijs, de besparing, het percentage en de
+ *   koraalrode CTA "Bekijk deal".
+ * - `DISCOVERY`: alles daarbuiten. Geen van-prijs, geen besparing, geen
+ *   percentage, en een rustige outline-CTA "Bekijk product".
+ */
+export type ProductKind = 'DEAL' | 'DISCOVERY'
+
 export type DealPricing = {
+  /** Presentatievorm; zie {@link ProductKind}. */
+  kind: ProductKind
   currency: string
   currentPriceCents: number
   currentPrice: string
@@ -94,7 +108,11 @@ export function computeDealPricing(offer: OfferPricingInput, now: Date = new Dat
   const inStock = offer.inStock !== false
   const isActive = inStock && !isStale && currentPriceCents > 0
 
+  // Een DEAL vraagt alle zes voorwaarden; al het andere is een DISCOVERY.
+  const kind: ProductKind = isActive && hasValidReferencePrice ? 'DEAL' : 'DISCOVERY'
+
   return {
+    kind,
     currency,
     currentPriceCents,
     currentPrice: formatMoney(currentPriceCents, currency),
@@ -117,10 +135,9 @@ export function computeDealPricing(offer: OfferPricingInput, now: Date = new Dat
     isActive,
     checkedAt,
     checkedAtLabel: formatCheckedAt(checkedAt, now),
-    qualifiesAsDeal:
-      isActive &&
-      hasValidReferencePrice &&
-      (discountPercentage ?? 0) >= MIN_DEAL_DISCOUNT_PERCENTAGE,
+    // Strenger dan `kind`: alleen met een merkbare korting mag een product in
+    // een dealssectie, in de dagelijkse editie of achter het dealfilter komen.
+    qualifiesAsDeal: kind === 'DEAL' && (discountPercentage ?? 0) >= MIN_DEAL_DISCOUNT_PERCENTAGE,
   }
 }
 
@@ -147,8 +164,13 @@ export function formatPromotionEnd(endsAt: Date): string {
   return dateTimeFormatter.format(endsAt)
 }
 
-/** Percentage voor een badge, bijvoorbeeld "-25%". */
-export function discountBadgeLabel(discountPercentage: number | null): string | null {
-  if (discountPercentage === null || discountPercentage <= 0) return null
-  return `-${discountPercentage}%`
+/**
+ * Percentage voor een badge, bijvoorbeeld "-25%". Alleen een DEAL krijgt er
+ * een: zonder geldige referentieprijs bestaat er geen korting om te tonen.
+ */
+export function discountBadgeLabel(pricing: DealPricing | null): string | null {
+  if (!pricing || pricing.kind !== 'DEAL') return null
+  const percentage = pricing.discountPercentage
+  if (percentage === null || percentage <= 0) return null
+  return `-${percentage}%`
 }

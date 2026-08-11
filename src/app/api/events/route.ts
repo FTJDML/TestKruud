@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { analyticsEventSchema, trackServerEvent } from '@/lib/analytics/events'
 import { RateLimiter } from '@/lib/scraping/rate-limit'
 import { readVisitorId } from '@/lib/saves/visitor'
+import { checkSameOrigin } from '@/lib/security/csrf'
 
 /** Ruime limiet: impressies en scroll-depth komen in kleine bursts binnen. */
 const limiter = new RateLimiter(120, 240)
@@ -11,6 +12,9 @@ const limiter = new RateLimiter(120, 240)
  * bestaat zodat een toekomstige provider achter één interface past.
  */
 export async function POST(request: Request) {
+  const origin = checkSameOrigin(request)
+  if (!origin.ok) return NextResponse.json({ error: 'Ongeldige herkomst.' }, { status: 403 })
+
   const visitorId = await readVisitorId()
   if (!limiter.take(visitorId ?? 'anoniem')) {
     return new NextResponse(null, { status: 429 })

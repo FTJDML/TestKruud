@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { publicConfig } from '@/lib/env'
+import { publicConfig, searchEngineIndexingEnabled } from '@/lib/env'
 
 export const siteName = 'HomeAndLivingDeals.nl'
 export const siteTagline = 'Spullen waarvan je vijf minuten geleden nog niet wist dat je ze wilde'
@@ -28,13 +28,16 @@ export function buildMetadata({
   type = 'website',
 }: PageMetadataInput): Metadata {
   const url = absoluteUrl(path)
+  // Zolang SEARCH_ENGINE_INDEXING_ENABLED uit staat, krijgt de hele site
+  // noindex. Dat voorkomt dat een acceptatieomgeving wordt geïndexeerd.
+  const blocked = noindex || !searchEngineIndexingEnabled()
   const ogImage = image ? (image.startsWith('http') ? image : absoluteUrl(image)) : absoluteUrl('/demo/placeholder.svg')
 
   return {
     title,
     description,
     alternates: { canonical: url },
-    robots: noindex
+    robots: blocked
       ? { index: false, follow: false, googleBot: { index: false, follow: false } }
       : { index: true, follow: true },
     openGraph: {

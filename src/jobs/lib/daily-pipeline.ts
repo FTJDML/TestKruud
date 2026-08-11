@@ -1,7 +1,8 @@
 import type { PrismaClient } from '@prisma/client'
-import { serverEnv } from '@/lib/env'
+import { demoContentEnabled, serverEnv } from '@/lib/env'
 import { errorMessage, logger } from '@/lib/logger'
 import { withConcurrency } from '@/lib/scraping/rate-limit'
+import { isDemoMerchant } from '@/merchants/sources/live-sources'
 import { generateMissingContent, type ContentSummary } from '@/jobs/lib/content'
 import { ingestMerchant, markStaleOffers, type IngestSummary } from '@/jobs/lib/ingest'
 import { publishDailyEdition, type EditionSummary } from '@/jobs/lib/publish-edition'
@@ -28,8 +29,14 @@ export async function runDailyPipeline(
   const startedAt = options.now ?? new Date()
   const errors: string[] = []
 
-  const merchants = await prisma.merchant.findMany({ where: { enabled: true }, orderBy: { slug: 'asc' } })
-  logger.info('Dagelijkse pipeline gestart', { merchants: merchants.length })
+  const all = await prisma.merchant.findMany({ where: { enabled: true }, orderBy: { slug: 'asc' } })
+  // Demo- en fixturebronnen worden in productie niet ingelezen.
+  const merchants = demoContentEnabled() ? all : all.filter((merchant) => !isDemoMerchant(merchant))
+  const skippedDemoSources = all.length - merchants.length
+  logger.info('Dagelijkse pipeline gestart', {
+    merchants: merchants.length,
+    skippedDemoSources,
+  })
 
   const ingest = await withConcurrency(
     merchants,
@@ -57,7 +64,7 @@ export async function runDailyPipeline(
 
   const staleOffers = await markStaleOffers(prisma, startedAt)
 
-  let content: ContentSummary = { generated: 0, skipped: 0, needsReview: 0, failed: 0 }
+  let content: ContentSummary = { generated: 0, skipped: 0, needsReview: 0, blocked: 0, failed: 0 }
   if (!options.skipContent) {
     try {
       content = await generateMissingContent(prisma)
@@ -98,6 +105,7 @@ export async function runDailyPipeline(
     published: result.edition.published,
     items: result.edition.itemCount,
     contentGenerated: result.content.generated,
+    contentBlocked: result.content.blocked,
     staleOffers,
     errors: errors.length,
   })

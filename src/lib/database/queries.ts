@@ -1,6 +1,8 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/database/client'
+import { looksDutch } from '@/lib/ai/language'
 import { categorySlugForName } from '@/lib/categories'
+import { demoContentEnabled } from '@/lib/env'
 import { computeDealPricing, discountBadgeLabel, type DealPricing } from '@/lib/pricing/deal'
 import { toCents, formatMoney } from '@/lib/pricing/money'
 import { editorialScore } from '@/lib/deals/score'
@@ -15,6 +17,15 @@ import type {
   ProductDetailView,
 } from '@/types'
 
+/**
+ * Brondata van een leverancier is vaak Engels. Zulke tekst hoort niet op een
+ * Nederlandse pagina, dus zij wordt niet doorgegeven aan de views.
+ */
+function dutchSourceDescription(value: string | null): string | null {
+  if (!value) return null
+  return looksDutch(value) ? value : null
+}
+
 /** Nieuw ontdekt: producten die we minder dan drie dagen kennen. */
 const NEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000
 
@@ -28,6 +39,19 @@ const productInclude = {
 } satisfies Prisma.ProductInclude
 
 type ProductWithRelations = Prisma.ProductGetPayload<{ include: typeof productInclude }>
+
+/**
+ * Basisfilter voor alles wat publiek zichtbaar is. Demo-producten verdwijnen
+ * volledig zodra `DEMO_CONTENT_ENABLED` uit staat, wat de standaard is in
+ * productie. Eén plek, zodat geen enkele publieke query het kan vergeten.
+ */
+function publicProductWhere(extra: Prisma.ProductWhereInput = {}): Prisma.ProductWhereInput {
+  return {
+    status: 'PUBLISHED',
+    ...(demoContentEnabled() ? {} : { isDemo: false }),
+    ...extra,
+  }
+}
 
 function jsonStringArray(value: Prisma.JsonValue | null | undefined): string[] {
   if (!Array.isArray(value)) return []
@@ -52,7 +76,7 @@ function badgeFor(
 ): ProductBadge | null {
   // Maximaal één badge per kaart, in vaste volgorde van belang.
   if (options.isHero) return { label: 'Vondst van de dag', tone: 'accent' }
-  const discountLabel = discountBadgeLabel(pricing?.discountPercentage ?? null)
+  const discountLabel = discountBadgeLabel(pricing)
   if (discountLabel && (pricing?.discountPercentage ?? 0) >= 20) {
     return { label: discountLabel, tone: 'deal' }
   }
@@ -78,7 +102,7 @@ function toCardView(
     category: product.primaryCategory,
     categorySlug: categorySlugForName(product.primaryCategory),
     headline: product.editorial?.headline ?? product.title,
-    teaser: product.editorial?.teaser ?? product.shortSourceDescription ?? '',
+    teaser: product.editorial?.teaser ?? dutchSourceDescription(product.shortSourceDescription) ?? '',
     imageUrl: product.imageUrl,
     imageAlt: product.imageAlt,
     isDemo: product.isDemo,
@@ -112,10 +136,11 @@ function toDetailView(product: ProductWithRelations, now: Date, history: PriceHi
     bestFor: jsonStringArray(product.editorial?.bestFor ?? null),
     caveat: product.editorial?.caveat ?? '',
     seoTitle: product.editorial?.seoTitle ?? product.title,
-    metaDescription: product.editorial?.metaDescription ?? product.shortSourceDescription ?? '',
+    metaDescription:
+      product.editorial?.metaDescription ?? dutchSourceDescription(product.shortSourceDescription) ?? '',
     tags: jsonStringArray(product.editorial?.tags ?? null),
     specifications,
-    shortSourceDescription: product.shortSourceDescription,
+    shortSourceDescription: dutchSourceDescription(product.shortSourceDescription),
     priceHistory: history,
     updatedAt: product.updatedAt,
     merchantDomain: best?.offer.merchant.domain ?? '',
@@ -149,7 +174,12 @@ export async function getCurrentEdition(now: Date = new Date()): Promise<Edition
 
   if (!edition) return null
 
-  const sorted = [...edition.items].sort((left, right) => left.position - right.position)
+  // Demo-producten uit een oudere editie verdwijnen mee wanneer demo-inhoud uit
+  // staat; de editie zelf blijft bestaan.
+  const visible = demoContentEnabled()
+    ? edition.items
+    : edition.items.filter((item) => !item.product.isDemo)
+  const sorted = [...visible].sort((left, right) => left.position - right.position)
   const section = (name: string) =>
     sorted
       .filter((item) => item.section === name)
@@ -171,6 +201,8 @@ export async function getProductBySlug(slug: string): Promise<ProductDetailView 
   const product = await prisma.product.findUnique({ where: { slug }, include: productInclude })
   if (!product) return null
   if (product.status === 'REJECTED' || product.status === 'CANDIDATE') return null
+  // Zonder demo-inhoud bestaat een demo-productpagina niet; dat levert een 404.
+  if (product.isDemo && !demoContentEnabled()) return null
 
   const now = new Date()
   const offerIds = product.offers.map((offer) => offer.id)
@@ -202,11 +234,10 @@ export async function getRelatedProducts(
   limit = 4,
 ): Promise<ProductCardView[]> {
   const products = await prisma.product.findMany({
-    where: {
-      status: 'PUBLISHED',
+    where: publicProductWhere({
       id: { not: product.id },
       primaryCategory: product.category,
-    },
+    }),
     include: productInclude,
     orderBy: { createdAt: 'desc' },
     take: limit,
@@ -214,10 +245,9 @@ export async function getRelatedProducts(
   if (products.length >= limit) return products.map((entry) => toCardView(entry))
 
   const filler = await prisma.product.findMany({
-    where: {
-      status: 'PUBLISHED',
+    where: publicProductWhere({
       id: { notIn: [product.id, ...products.map((entry) => entry.id)] },
-    },
+    }),
     include: productInclude,
     orderBy: { createdAt: 'desc' },
     take: limit - products.length,
@@ -238,10 +268,7 @@ export async function getCategoryProducts(
   categoryName: string,
   filters: CategoryFilters,
 ): Promise<CategoryResult> {
-  const where: Prisma.ProductWhereInput = {
-    status: 'PUBLISHED',
-    primaryCategory: categoryName,
-  }
+  const where = publicProductWhere({ primaryCategory: categoryName })
   const now = new Date()
   const products = await prisma.product.findMany({ where, include: productInclude })
 
@@ -283,8 +310,7 @@ export async function searchProducts(query: string, limit = 36): Promise<Product
   const trimmed = query.trim()
   if (trimmed.length < 2) return []
   const products = await prisma.product.findMany({
-    where: {
-      status: 'PUBLISHED',
+    where: publicProductWhere({
       OR: [
         { title: { contains: trimmed, mode: 'insensitive' } },
         { brand: { contains: trimmed, mode: 'insensitive' } },
@@ -294,17 +320,16 @@ export async function searchProducts(query: string, limit = 36): Promise<Product
         { editorial: { headline: { contains: trimmed, mode: 'insensitive' } } },
         { editorial: { teaser: { contains: trimmed, mode: 'insensitive' } } },
       ],
-    },
+    }),
     include: productInclude,
     take: limit,
   })
 
   const tagMatches = await prisma.product.findMany({
-    where: {
-      status: 'PUBLISHED',
+    where: publicProductWhere({
       id: { notIn: products.map((product) => product.id) },
       editorial: { tags: { array_contains: trimmed.toLowerCase() } },
-    },
+    }),
     include: productInclude,
     take: Math.max(0, limit - products.length),
   })
@@ -314,7 +339,7 @@ export async function searchProducts(query: string, limit = 36): Promise<Product
 
 export async function getNewProducts(limit = 24): Promise<ProductCardView[]> {
   const products = await prisma.product.findMany({
-    where: { status: 'PUBLISHED' },
+    where: publicProductWhere(),
     include: productInclude,
     orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
     take: limit,
@@ -324,7 +349,7 @@ export async function getNewProducts(limit = 24): Promise<ProductCardView[]> {
 
 export async function getCollectionProducts(collectionSlug: string, limit = 12): Promise<ProductCardView[]> {
   const products = await prisma.product.findMany({
-    where: { status: 'PUBLISHED', collections: { has: collectionSlug } },
+    where: publicProductWhere({ collections: { has: collectionSlug } }),
     include: productInclude,
     orderBy: { createdAt: 'desc' },
     take: limit,
@@ -361,7 +386,7 @@ export async function getPopularProducts(limit = 8): Promise<PopularResult> {
 
   if (hasEnoughRealData) {
     const products = await prisma.product.findMany({
-      where: { status: 'PUBLISHED', id: { in: ranked.map(([id]) => id) } },
+      where: publicProductWhere({ id: { in: ranked.map(([id]) => id) } }),
       include: productInclude,
     })
     const order = new Map(ranked.map(([id], index) => [id, index]))
@@ -372,7 +397,7 @@ export async function getPopularProducts(limit = 8): Promise<PopularResult> {
   }
 
   const products = await prisma.product.findMany({
-    where: { status: 'PUBLISHED' },
+    where: publicProductWhere(),
     include: productInclude,
     take: 60,
   })
@@ -391,8 +416,10 @@ export async function getSavedProducts(visitorId: string): Promise<ProductCardVi
     orderBy: { createdAt: 'desc' },
     include: { product: { include: productInclude } },
   })
+  const showDemo = demoContentEnabled()
   return saves
     .filter((save) => save.product.status !== 'REJECTED')
+    .filter((save) => showDemo || !save.product.isDemo)
     .map((save) => toCardView(save.product))
 }
 

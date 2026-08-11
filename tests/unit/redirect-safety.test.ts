@@ -37,6 +37,24 @@ describe('affiliate-voorrang', () => {
       'https://winkel.example/x',
     )
   })
+
+  it('negeert de affiliate-URL wanneer affiliate-links uit staan', () => {
+    expect(
+      resolveDestination(
+        { affiliateUrl: 'https://partner.example/x', destinationUrl: 'https://winkel.example/x' },
+        { affiliateLinksEnabled: false },
+      ),
+    ).toBe('https://winkel.example/x')
+  })
+
+  it('blijft een onveilige affiliate-URL weigeren', () => {
+    // De /go-route combineert beide functies: eerst oplossen, dan controleren.
+    const target = resolveDestination({
+      affiliateUrl: 'javascript:alert(1)',
+      destinationUrl: 'https://winkel.example/x',
+    })
+    expect(isSafeDestination(target)).toBe(false)
+  })
 })
 
 describe('URL-normalisatie uit brondata', () => {

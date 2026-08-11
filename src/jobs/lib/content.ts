@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { providerForProduct } from '@/lib/ai'
+import { validateEditorialContent } from '@/lib/ai/schema'
 import { factsFingerprint, type ProductFacts } from '@/lib/ai/provider'
 import { toCents } from '@/lib/pricing/money'
 import { errorMessage, logger } from '@/lib/logger'
@@ -8,6 +9,8 @@ export type ContentSummary = {
   generated: number
   skipped: number
   needsReview: number
+  /** Content die de kwaliteitspoort niet haalde en dus niet is opgeslagen. */
+  blocked: number
   failed: number
 }
 
@@ -30,7 +33,7 @@ export async function generateMissingContent(
   prisma: PrismaClient,
   options: { limit?: number; force?: boolean } = {},
 ): Promise<ContentSummary> {
-  const summary: ContentSummary = { generated: 0, skipped: 0, needsReview: 0, failed: 0 }
+  const summary: ContentSummary = { generated: 0, skipped: 0, needsReview: 0, blocked: 0, failed: 0 }
 
   const products = await prisma.product.findMany({
     where: { status: { in: ['CANDIDATE', 'DRAFT', 'NEEDS_REVIEW', 'PUBLISHED'] } },
@@ -73,6 +76,23 @@ export async function generateMissingContent(
       const provider = providerForProduct(facts)
       const result = await provider.generate(facts)
       const content = result.content
+
+      // Duidelijk slechte of lege content wordt niet opgeslagen. Het product
+      // gaat naar NEEDS_REVIEW en bestaande content blijft ongemoeid.
+      const validation = validateEditorialContent(content)
+      if (!validation.ok) {
+        summary.blocked += 1
+        logger.warn('Content geblokkeerd door de kwaliteitspoort', {
+          product: product.slug,
+          provider: result.provider,
+          reasons: validation.reasons,
+        })
+        await prisma.product.update({
+          where: { id: product.id },
+          data: { status: 'NEEDS_REVIEW' },
+        })
+        continue
+      }
 
       await prisma.$transaction([
         prisma.editorialContent.upsert({

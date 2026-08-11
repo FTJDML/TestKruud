@@ -1,17 +1,70 @@
+# ---------------------------------------------------------------------------
+# Niets uit deze lijst hoort in Git. Secrets, databasegegevens, uploads en
+# build-output blijven lokaal of op de server.
+# ---------------------------------------------------------------------------
+
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Build-output
 .next/
 out/
 build/
 dist/
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# Environment en secrets
 .env
-.env.local
-.env.*.local
-*.log
-npm-debug.log*
-.DS_Store
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+.secrets/
+*.secret
+
+# Database: dumps, back-ups en lokale datamappen
+backups/
+*.dump
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+pgdata/
+postgres-data/
+
+# Uploads en door de app gegenereerde media
+uploads/
+public/uploads/
+storage/
+
+# Tests en tooling
 coverage/
 test-results/
 playwright-report/
 playwright/.cache/
-tsconfig.tsbuildinfo
-next-env.d.ts
+.vitest/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# Editors en besturingssystemen
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Caddy-data wanneer de proxy lokaal buiten Docker draait
+caddy-data/
+caddy-config/

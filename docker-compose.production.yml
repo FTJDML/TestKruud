@@ -1,0 +1,160 @@
+# ---------------------------------------------------------------------------
+# Productiestack voor een Linux-VPS: Caddy (automatische HTTPS), PostgreSQL,
+# de webapp en een worker voor de dagelijkse pipeline.
+#
+#   cp .env.example .env      # vul alle waarden in, APP_ENV=production
+#   docker compose -f docker-compose.production.yml up -d --build
+#
+# De database en de app publiceren geen poorten naar buiten; alleen Caddy staat
+# op 80 en 443. Migraties draaien als eenmalige stap vóór de app start. Er wordt
+# in productie nooit demo-inhoud geseed.
+# ---------------------------------------------------------------------------
+name: homeandlivingdeals-prod
+
+x-app-environment: &app-environment
+  APP_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER:?zet POSTGRES_USER}:${POSTGRES_PASSWORD:?zet POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-homeandlivingdeals}?schema=public
+  NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?zet NEXT_PUBLIC_SITE_URL}
+  DEMO_CONTENT_ENABLED: 'false'
+  SEARCH_ENGINE_INDEXING_ENABLED: ${SEARCH_ENGINE_INDEXING_ENABLED:-false}
+  ADS_ENABLED: ${ADS_ENABLED:-false}
+  AFFILIATE_LINKS_ENABLED: ${AFFILIATE_LINKS_ENABLED:-false}
+  NEXT_PUBLIC_ADS_ENABLED: ${NEXT_PUBLIC_ADS_ENABLED:-false}
+  NEXT_PUBLIC_AD_PROVIDER: ${NEXT_PUBLIC_AD_PROVIDER:-none}
+  NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${NEXT_PUBLIC_ADSENSE_CLIENT_ID:-}
+  CONTENT_PROVIDER: ${CONTENT_PROVIDER:-template}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5}
+  CRON_SECRET: ${CRON_SECRET:?zet CRON_SECRET}
+  SCRAPER_USER_AGENT: ${SCRAPER_USER_AGENT:-HomeAndLivingDealsBot/1.0 (+https://homeandlivingdeals.nl/over)}
+  SCRAPER_TIMEOUT_MS: ${SCRAPER_TIMEOUT_MS:-15000}
+  SCRAPER_MAX_CONCURRENCY: ${SCRAPER_MAX_CONCURRENCY:-2}
+  SCRAPER_REQUESTS_PER_MINUTE: ${SCRAPER_REQUESTS_PER_MINUTE:-30}
+  ADMIN_USERNAME: ${ADMIN_USERNAME:?zet ADMIN_USERNAME}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?zet ADMIN_PASSWORD}
+  ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:?zet ADMIN_SESSION_SECRET}
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?zet SITE_DOMAIN, bijvoorbeeld homeandlivingdeals.nl}
+      ACME_EMAIL: ${ACME_EMAIL:?zet ACME_EMAIL voor Let's Encrypt}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:2019/config/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      app:
+        condition: service_healthy
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?zet POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?zet POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-homeandlivingdeals}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-homeandlivingdeals}']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    # Geen ports: alleen de app en de worker in dit netwerk mogen erbij.
+
+  # Eenmalige stap. `prisma migrate deploy` past alleen bestaande migraties toe
+  # en genereert er nooit een nieuwe; veilig om bij elke deploy te draaien.
+  migrate:
+    build:
+      context: .
+      target: jobs
+    command: pnpm db:migrate
+    environment: *app-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  app:
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    environment: *app-environment
+    expose:
+      - '3000'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Draait de dagelijkse pipeline om WORKER_DAILY_HOUR:WORKER_DAILY_MINUTE
+  # (Europe/Amsterdam). Alternatief zonder worker: crontab die /api/cron/daily
+  # aanroept met CRON_SECRET; zie de README.
+  worker:
+    build:
+      context: .
+      target: jobs
+    command: pnpm job:worker
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      WORKER_DAILY_HOUR: ${WORKER_DAILY_HOUR:-6}
+      WORKER_DAILY_MINUTE: ${WORKER_DAILY_MINUTE:-15}
+      WORKER_RUN_ON_START: ${WORKER_RUN_ON_START:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Back-up op aanvraag; zet dit in de crontab van de host:
+  #   15 3 * * * cd /srv/hald && docker compose -f docker-compose.production.yml \
+  #     --profile backup run --rm backup
+  backup:
+    image: postgres:17-alpine
+    profiles: ['backup']
+    entrypoint: ['/bin/sh', '-c']
+    command: >-
+      "mkdir -p /backups && stamp=$$(date -u +%Y%m%dT%H%M%SZ) &&
+       pg_dump --dbname=$$DATABASE_URL --format=custom --no-owner --no-privileges
+         --file=/backups/homeandlivingdeals-$$stamp.dump.partial &&
+       mv /backups/homeandlivingdeals-$$stamp.dump.partial /backups/homeandlivingdeals-$$stamp.dump &&
+       ls -1t /backups/homeandlivingdeals-*.dump | tail -n +8 | xargs -r rm -f &&
+       echo klaar: $$(ls -1 /backups/homeandlivingdeals-*.dump | wc -l) back-ups"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-homeandlivingdeals}
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

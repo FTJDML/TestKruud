@@ -18,14 +18,10 @@ type Props = { params: Promise<{ slug: string }> }
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const collection = collectionBySlug(slug)
-  if (!collection) {
-    return buildMetadata({
-      title: 'Collectie niet gevonden',
-      description: 'Deze collectie bestaat niet.',
-      path: `/collectie/${slug}`,
-      noindex: true,
-    })
-  }
+  // In generateMetadata, want na de eerste flush kan de statuscode niet meer op
+  // 404 worden gezet (zie (site)/loading.tsx).
+  if (!collection) notFound()
+
   return buildMetadata({
     title: collection.name,
     description: collection.intro.slice(0, 155),

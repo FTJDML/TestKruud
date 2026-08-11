@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next'
 import { categories } from '@/lib/categories'
 import { collections } from '@/lib/collections'
+import { searchEngineIndexingEnabled } from '@/lib/env'
 import { getIndexableProducts } from '@/lib/database/queries'
 import { absoluteUrl } from '@/lib/seo/metadata'
 
@@ -24,6 +25,9 @@ const staticPaths = [
  * demo-producten staan er bewust niet in.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // Niet indexeren betekent ook: geen sitemap aanbieden.
+  if (!searchEngineIndexingEnabled()) return []
+
   const products = await getIndexableProducts().catch(() => [])
   const now = new Date()
 

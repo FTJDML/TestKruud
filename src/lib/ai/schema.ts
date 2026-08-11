@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { looksDutch } from '@/lib/ai/language'
 import { wordCount } from '@/lib/utils'
 
 /**
@@ -62,6 +63,92 @@ export const editorialContentJsonSchema = {
 export type ContentStyleIssue = {
   field: keyof EditorialContentPayload
   message: string
+}
+
+/** Tekstvelden die een bezoeker leest en die dus Nederlands moeten zijn. */
+const prose = ['headline', 'teaser', 'longDescription', 'whyItStandsOut', 'caveat'] as const
+
+const placeholderPattern =
+  /(lorem ipsum|\bt\.?b\.?d\.?\b|\btodo\b|\bxxx\b|\[insert|\{\{|\}\}|<\/?[a-z][^>]*>|\bundefined\b|\bnull\b|\bn\/a\b)/i
+
+export type ContentBlocker = {
+  field: keyof EditorialContentPayload | 'content'
+  message: string
+}
+
+/**
+ * Harde kwaliteitspoort voor gegenereerde content. Anders dan
+ * {@link checkContentStyle} is dit geen advies: wat hier wordt geblokkeerd komt
+ * niet in de database en zet het product op `NEEDS_REVIEW`.
+ *
+ * Geblokkeerd wordt: lege of vulveldtekst, placeholders en HTML, tekst die niet
+ * Nederlands is, gekopieerde velden, prijzen of kortingspercentages, en
+ * dezelfde zin die zich blijft herhalen.
+ */
+export function findContentBlockers(payload: EditorialContentPayload): ContentBlocker[] {
+  const blockers: ContentBlocker[] = []
+
+  for (const field of prose) {
+    const value = payload[field]
+    if (value.trim().length === 0) {
+      blockers.push({ field, message: 'veld is leeg' })
+      continue
+    }
+    if (placeholderPattern.test(value)) {
+      blockers.push({ field, message: 'bevat placeholder-, HTML- of vulveldtekst' })
+    }
+    if (!looksDutch(value)) {
+      blockers.push({ field, message: 'tekst lijkt niet Nederlands' })
+    }
+    if (value === value.toUpperCase() && value.length > 12) {
+      blockers.push({ field, message: 'volledig in hoofdletters' })
+    }
+    if (/€|\d+\s?%/.test(value)) {
+      blockers.push({ field, message: 'prijzen en kortingspercentages horen niet in redactionele tekst' })
+    }
+  }
+
+  if (payload.headline.trim() === payload.teaser.trim()) {
+    blockers.push({ field: 'teaser', message: 'teaser is een kopie van de kop' })
+  }
+  if (payload.teaser.trim() === payload.longDescription.trim()) {
+    blockers.push({ field: 'longDescription', message: 'beschrijving is een kopie van de teaser' })
+  }
+
+  // Eén zin die zich drie keer herhaalt is geen tekst maar vulling.
+  const sentences = payload.longDescription
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim().toLowerCase())
+    .filter((sentence) => sentence.length > 20)
+  const counts = new Map<string, number>()
+  for (const sentence of sentences) counts.set(sentence, (counts.get(sentence) ?? 0) + 1)
+  if ([...counts.values()].some((count) => count >= 3)) {
+    blockers.push({ field: 'longDescription', message: 'dezelfde zin wordt herhaald' })
+  }
+
+  if (payload.bestFor.some((entry) => entry.trim().length === 0)) {
+    blockers.push({ field: 'bestFor', message: 'lege waarde in bestFor' })
+  }
+  if (payload.tags.some((entry) => entry.trim().length === 0)) {
+    blockers.push({ field: 'tags', message: 'lege waarde in tags' })
+  }
+
+  return blockers
+}
+
+export type ContentValidation =
+  | { ok: true }
+  | { ok: false; blockers: ContentBlocker[]; reasons: string[] }
+
+/** Handige wrapper: `ok` plus leesbare redenen voor de log en het adminpaneel. */
+export function validateEditorialContent(payload: EditorialContentPayload): ContentValidation {
+  const blockers = findContentBlockers(payload)
+  if (blockers.length === 0) return { ok: true }
+  return {
+    ok: false,
+    blockers,
+    reasons: blockers.map((blocker) => `${blocker.field}: ${blocker.message}`),
+  }
 }
 
 /**

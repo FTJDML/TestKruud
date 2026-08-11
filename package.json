@@ -24,6 +24,10 @@
     "job:daily": "tsx src/jobs/daily.ts",
     "job:ingest": "tsx src/jobs/ingest.ts",
     "job:content": "tsx src/jobs/content.ts",
+    "job:worker": "tsx src/jobs/worker.ts",
+    "db:seed:demo": "APP_ENV=development DEMO_CONTENT_ENABLED=true tsx prisma/seed.ts",
+    "db:backup": "./scripts/backup-database.sh",
+    "db:restore": "./scripts/restore-database.sh",
     "postinstall": "prisma generate"
   },
   "prisma": {

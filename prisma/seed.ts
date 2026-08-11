@@ -1,6 +1,6 @@
 import '../src/lib/load-env'
 import { prisma } from '../src/lib/database/client'
-import { serverEnv } from '../src/lib/env'
+import { shouldSeedDemoContent } from '../src/lib/env'
 import { demoMerchants } from '../src/merchants/fixtures/demo-merchants'
 import { liveSources } from '../src/merchants/sources/live-sources'
 import { generateMissingContent } from '../src/jobs/lib/content'
@@ -16,9 +16,9 @@ import { publishDailyEdition } from '../src/jobs/lib/publish-edition'
  * tests/fixtures en worden alleen door tests gebruikt.
  */
 async function main(): Promise<void> {
-  const env = serverEnv()
-  if (!env.SEED_DEMO_CONTENT) {
-    console.info('SEED_DEMO_CONTENT staat op false; er wordt geen demo-inhoud geplaatst.')
+  const decision = shouldSeedDemoContent()
+  if (!decision.seed) {
+    console.info(`${decision.reason}; er wordt geen demo-inhoud geplaatst. Zie README (Productiemodi).`)
     return
   }
 
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
 
   const content = await generateMissingContent(prisma)
   console.info(
-    `Redactionele content: ${content.generated} gegenereerd, ${content.skipped} onveranderd, ${content.needsReview} met review nodig.`,
+    `Redactionele content: ${content.generated} gegenereerd, ${content.skipped} onveranderd, ${content.needsReview} met review nodig, ${content.blocked} geblokkeerd.`,
   )
 
   const edition = await publishDailyEdition(prisma)

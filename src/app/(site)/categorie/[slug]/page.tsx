@@ -34,14 +34,10 @@ type Props = {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const category = categoryBySlug(slug)
-  if (!category) {
-    return buildMetadata({
-      title: 'Categorie niet gevonden',
-      description: 'Deze categorie bestaat niet.',
-      path: `/categorie/${slug}`,
-      noindex: true,
-    })
-  }
+  // In generateMetadata, want na de eerste flush kan de statuscode niet meer op
+  // 404 worden gezet (zie (site)/loading.tsx).
+  if (!category) notFound()
+
   return buildMetadata({
     title: `${category.name} — bijzondere vondsten`,
     description: category.intro.slice(0, 155),

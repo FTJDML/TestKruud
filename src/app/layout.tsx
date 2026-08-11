@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, Manrope } from 'next/font/google'
 import './globals.css'
+import { searchEngineIndexingEnabled } from '@/lib/env'
 import { absoluteUrl, siteName, siteTagline } from '@/lib/seo/metadata'
 
 const manrope = Manrope({
@@ -36,6 +37,11 @@ export const metadata: Metadata = {
     description: siteTagline,
   },
   twitter: { card: 'summary_large_image' },
+  // Standaard staat de hele site op noindex; pas met
+  // SEARCH_ENGINE_INDEXING_ENABLED=true mag een zoekmachine indexeren.
+  robots: searchEngineIndexingEnabled()
+    ? { index: true, follow: true }
+    : { index: false, follow: false, googleBot: { index: false, follow: false } },
 }
 
 export const viewport: Viewport = {
