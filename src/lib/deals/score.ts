@@ -30,6 +30,10 @@ export type ScoreInput = {
   discoveredAt: Date
   /** Wanneer de aanbieding voor het laatst is gecontroleerd. */
   checkedAt: Date
+  /** Laatste door ons gemeten prijswijziging (uit DealAnalysis). */
+  lastPriceChangeAt?: Date | null
+  /** Moment waarop een prijsdaling is gedetecteerd (uit DealAnalysis). */
+  dealDetectedAt?: Date | null
   visualQualityScore: number
   merchantTrustScore: number
 }
@@ -52,13 +56,40 @@ export function discountQualityScore(
   return clamp(Math.round((Math.min(discountPercentage, 40) / 40) * 100), 0, 100)
 }
 
-/** Versheid: nieuw ontdekt en recent gecontroleerd scoort hoger. */
-export function freshnessScore(discoveredAt: Date, checkedAt: Date, now: Date = new Date()): number {
-  const discoveryDays = (now.getTime() - discoveredAt.getTime()) / 86_400_000
+/**
+ * Versheid. Drie signalen, in deze volgorde van belang:
+ *
+ * 1. een verse, door ons gemeten prijsdaling (`dealDetectedAt`);
+ * 2. een recente prijswijziging in het algemeen (`lastPriceChangeAt`);
+ * 3. hoe lang wij het product al kennen en hoe recent wij de prijs zagen.
+ *
+ * Zo kan een product dat wij al maanden volgen opnieuw bovenaan komen zodra de
+ * prijs echt daalt — precies wat een dealsite hoort te doen.
+ */
+export function freshnessScore(
+  input: {
+    discoveredAt: Date
+    checkedAt: Date
+    lastPriceChangeAt?: Date | null
+    dealDetectedAt?: Date | null
+  },
+  now: Date = new Date(),
+): number {
+  const discoveryDays = (now.getTime() - input.discoveredAt.getTime()) / 86_400_000
   const discoveryPart = clamp(100 - discoveryDays * 5, 0, 100)
-  const checkHours = (now.getTime() - checkedAt.getTime()) / 3_600_000
+  const checkHours = (now.getTime() - input.checkedAt.getTime()) / 3_600_000
   const checkPart = clamp(100 - checkHours * 4, 0, 100)
-  return Math.round(discoveryPart * 0.6 + checkPart * 0.4)
+  const basis = discoveryPart * 0.6 + checkPart * 0.4
+
+  const priceEvent = input.dealDetectedAt ?? input.lastPriceChangeAt ?? null
+  if (!priceEvent) return Math.round(basis)
+
+  // Een prijsdaling van vandaag geeft 100; het effect zakt over zeven dagen weg.
+  const eventDays = (now.getTime() - priceEvent.getTime()) / 86_400_000
+  const eventPart = clamp(100 - eventDays * (100 / 7), 0, 100)
+  // Een verse prijsdaling weegt zwaarder dan een gewone prijswijziging.
+  const weight = input.dealDetectedAt ? 0.75 : 0.5
+  return Math.round(Math.max(basis, basis * (1 - weight) + eventPart * weight))
 }
 
 export function compositeScore(input: ScoreInput, now: Date = new Date()): ScoreBreakdown {
@@ -68,7 +99,15 @@ export function compositeScore(input: ScoreInput, now: Date = new Date()): Score
     usefulness: clamp(input.usefulnessScore, 0, 100),
     giftability: clamp(input.giftabilityScore, 0, 100),
     discountQuality: discountQualityScore(input.discountPercentage, input.hasValidReferencePrice),
-    freshness: freshnessScore(input.discoveredAt, input.checkedAt, now),
+    freshness: freshnessScore(
+      {
+        discoveredAt: input.discoveredAt,
+        checkedAt: input.checkedAt,
+        lastPriceChangeAt: input.lastPriceChangeAt,
+        dealDetectedAt: input.dealDetectedAt,
+      },
+      now,
+    ),
     visualQuality: clamp(input.visualQualityScore, 0, 100),
     merchantTrust: clamp(input.merchantTrustScore, 0, 100),
   }

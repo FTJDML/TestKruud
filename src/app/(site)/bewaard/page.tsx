@@ -49,7 +49,7 @@ export default async function SavedPage() {
             <p className="mb-6 text-sm text-muted">
               {products.length} {products.length === 1 ? 'bewaard product' : 'bewaarde producten'}
             </p>
-            <ProductGrid products={products} surface="bewaard" priorityCount={2} />
+            <ProductGrid products={products} surface="saved" priorityCount={2} />
           </>
         )}
       </div>

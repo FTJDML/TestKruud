@@ -1,4 +1,4 @@
-import type { Merchant, Prisma, PrismaClient, ProductStatus } from '@prisma/client'
+import type { ImageStatus, Merchant, Prisma, PrismaClient, ProductStatus } from '@prisma/client'
 import { adapterFor } from '@/merchants/adapters'
 import type { AdapterContext, NormalizedItem } from '@/merchants/types'
 import { findDuplicate, normalizeTitle, type DedupeCandidate } from '@/lib/deals/dedupe'
@@ -32,12 +32,48 @@ function merchantContext(merchant: Merchant, limit?: number): AdapterContext {
   }
 }
 
+/**
+ * Beginstatus van een nieuw product.
+ *
+ * `DRAFT` betekent "bedoeld om te publiceren, wacht nog op controles": de
+ * afbeelding moet geldig zijn en er moet redactionele content zijn. Die promotie
+ * doet `promotePublishableProducts`. `CANDIDATE` betekent dat een mens het
+ * product eerst in /admin moet goedkeuren.
+ */
 function initialStatus(merchant: Merchant, item: NormalizedItem): ProductStatus {
   const configuration = (merchant.configuration ?? {}) as Record<string, unknown>
-  // Demo-producten en merchants met autoPublish worden direct gepubliceerd;
-  // nieuwe echte producten vragen standaard handmatige goedkeuring.
-  if (item.product.isDemo) return 'PUBLISHED'
-  return configuration.autoPublish === true ? 'PUBLISHED' : 'CANDIDATE'
+  if (item.product.isDemo) return 'DRAFT'
+  return configuration.autoPublish === true ? 'DRAFT' : 'CANDIDATE'
+}
+
+type ExistingImageState = {
+  imageUrl: string
+  imageStatus: ImageStatus
+  lastValidImageUrl: string | null
+}
+
+/**
+ * Bepaalt welke afbeeldingvelden een bestaand product krijgt wanneer de bron een
+ * andere URL levert. De nieuwe URL komt eerst in `imageSourceUrl` te staan; de
+ * image-job valideert haar en promoveert haar pas daarna naar `imageUrl`.
+ */
+export function imageUpdateForExisting(
+  current: ExistingImageState | undefined,
+  incomingUrl: string,
+): Prisma.ProductUpdateInput {
+  if (!current) return { imageUrl: incomingUrl, imageSourceUrl: incomingUrl, imageStatus: 'PENDING' }
+  if (current.imageUrl === incomingUrl) return { imageSourceUrl: incomingUrl }
+
+  if (current.imageStatus === 'VALID') {
+    // Werkende afbeelding blijft staan tot de nieuwe is goedgekeurd.
+    return { imageSourceUrl: incomingUrl }
+  }
+  return {
+    imageUrl: incomingUrl,
+    imageSourceUrl: incomingUrl,
+    imageStatus: 'PENDING',
+    imageFailureReason: null,
+  }
 }
 
 /**
@@ -48,7 +84,17 @@ function initialStatus(merchant: Merchant, item: NormalizedItem): ProductStatus 
 export async function ingestMerchant(
   prisma: PrismaClient,
   merchant: Merchant,
-  options: { limit?: number; now?: Date } = {},
+  options: {
+    limit?: number
+    now?: Date
+    /**
+     * Alleen prijs en voorraad bijwerken. Nieuwe producten worden dan niet
+     * aangemaakt, bestaande producten niet gewijzigd en afbeeldingen niet
+     * aangeraakt. Gebruikt door `pnpm job:refresh-prices`, dat meerdere keren per
+     * dag mag draaien.
+     */
+    pricesOnly?: boolean
+  } = {},
 ): Promise<IngestSummary> {
   const now = options.now ?? new Date()
   const summary: IngestSummary = {
@@ -92,8 +138,20 @@ export async function ingestMerchant(
 
     // Bestaande producten als deduplicatiekandidaten inlezen.
     const existing = await prisma.product.findMany({
-      select: { id: true, externalId: true, ean: true, brand: true, model: true, title: true, slug: true },
+      select: {
+        id: true,
+        externalId: true,
+        ean: true,
+        brand: true,
+        model: true,
+        title: true,
+        slug: true,
+        imageUrl: true,
+        imageStatus: true,
+        lastValidImageUrl: true,
+      },
     })
+    const existingById = new Map(existing.map((product) => [product.id, product]))
     const takenSlugs = new Set(existing.map((product) => product.slug))
     const candidates: DedupeCandidate[] = existing.map((product) => ({
       id: product.id,
@@ -117,9 +175,28 @@ export async function ingestMerchant(
       }
       const duplicate = findDuplicate(candidate, candidates)
 
+      // Een fuzzy match is een vermoeden, geen feit. Die wordt nooit
+      // automatisch samengevoegd: het product komt als nieuw binnen en de
+      // mogelijke koppeling wacht op een mens in /admin.
+      const isFuzzy = duplicate?.strategy === 'fuzzy-title'
+      const confirmed = isFuzzy ? null : duplicate
+
       let productId: string
-      if (duplicate) {
-        productId = duplicate.match.id
+      if (options.pricesOnly) {
+        // Zonder bestaand product is er niets om een prijs bij te werken; dat
+        // is werk voor de volledige dagelijkse job.
+        if (!confirmed) {
+          summary.warnings.push(`nieuw product ${item.product.externalId} overgeslagen (alleen prijzen)`)
+          continue
+        }
+        productId = confirmed.match.id
+      } else if (confirmed) {
+        productId = confirmed.match.id
+        const current = existingById.get(productId)
+        // Een nieuwe afbeelding-URL wordt eerst gevalideerd. Zolang dat niet is
+        // gebeurd blijft de laatst bekende geldige afbeelding staan; een kapotte
+        // nieuwe URL mag een werkende afbeelding nooit overschrijven.
+        const image = imageUpdateForExisting(current, item.product.imageUrl)
         await prisma.product.update({
           where: { id: productId },
           data: {
@@ -130,10 +207,10 @@ export async function ingestMerchant(
             ean: item.product.ean ?? undefined,
             shortSourceDescription: item.product.shortSourceDescription ?? undefined,
             specifications: (item.product.specifications ?? {}) as Prisma.InputJsonValue,
-            imageUrl: item.product.imageUrl,
             imageAlt: item.product.imageAlt,
             primaryCategory: item.product.primaryCategory,
             collections: item.product.collections ?? [],
+            ...image,
           },
         })
       } else {
@@ -154,6 +231,9 @@ export async function ingestMerchant(
             specifications: (item.product.specifications ?? {}) as Prisma.InputJsonValue,
             imageUrl: item.product.imageUrl,
             imageAlt: item.product.imageAlt,
+            imageSourceUrl: item.product.imageUrl,
+            // Nieuwe afbeeldingen zijn ongecontroleerd tot de image-job draait.
+            imageStatus: 'PENDING',
             status,
             isDemo: item.product.isDemo ?? false,
             collections: item.product.collections ?? [],
@@ -163,6 +243,29 @@ export async function ingestMerchant(
         productId = created.id
         summary.productsCreated += 1
         candidates.push({ ...candidate, id: created.id })
+
+        if (isFuzzy && duplicate) {
+          // Vastleggen als openstaande koppelingsvraag; niets samenvoegen.
+          await prisma.productMatchCandidate.upsert({
+            where: {
+              productId_candidateProductId: {
+                productId: created.id,
+                candidateProductId: duplicate.match.id,
+              },
+            },
+            create: {
+              productId: created.id,
+              candidateProductId: duplicate.match.id,
+              method: 'FUZZY',
+              similarity: duplicate.confidence,
+              reason: `titelovereenkomst ${(duplicate.confidence * 100).toFixed(0)}%`,
+            },
+            update: { similarity: duplicate.confidence },
+          })
+          summary.warnings.push(
+            `mogelijke dubbel: "${item.product.title}" lijkt op een bestaand product; wacht op handmatige bevestiging`,
+          )
+        }
       }
 
       const staleAt = new Date(now.getTime() + STALE_AFTER_MS)
@@ -174,13 +277,35 @@ export async function ingestMerchant(
             : centsToDecimalString(item.offer.referencePriceCents),
         referencePriceType: item.offer.referencePriceType ?? null,
         currency: item.offer.currency,
+        // Alleen overnemen wanneer de bron verzendkosten betrouwbaar meelevert.
+        shippingCost:
+          item.offer.shippingCostCents === null || item.offer.shippingCostCents === undefined
+            ? null
+            : centsToDecimalString(item.offer.shippingCostCents),
         inStock: item.offer.inStock,
+        availabilityLabel: item.offer.availabilityLabel ?? null,
+        productGroup: item.offer.productGroup ?? null,
+        variantId: item.offer.variantId ?? null,
         destinationUrl: item.offer.destinationUrl,
         affiliateUrl: item.offer.affiliateUrl ?? null,
         promotionEndsAt: item.offer.promotionEndsAt ?? null,
         checkedAt: now,
         staleAt,
       }
+
+      // Bij een prijsverversing blijven links, verzendkosten en promotiedata
+      // staan zoals de laatste volledige import ze zag.
+      const updateData = options.pricesOnly
+        ? {
+            currentPrice: offerData.currentPrice,
+            referencePrice: offerData.referencePrice,
+            referencePriceType: offerData.referencePriceType,
+            inStock: offerData.inStock,
+            availabilityLabel: offerData.availabilityLabel,
+            checkedAt: offerData.checkedAt,
+            staleAt: offerData.staleAt,
+          }
+        : offerData
 
       const offer = await prisma.offer.upsert({
         where: {
@@ -195,7 +320,7 @@ export async function ingestMerchant(
           externalOfferId: item.offer.externalOfferId,
           ...offerData,
         },
-        update: offerData,
+        update: updateData,
         select: { id: true },
       })
       summary.offersUpdated += 1

@@ -1,4 +1,4 @@
-import type { ReferencePriceType, SourceType } from '@prisma/client'
+import type { AffiliateNetwork, ReferencePriceType, SourceType } from '@prisma/client'
 
 /** Genormaliseerd product zoals een adapter het oplevert. */
 export type NormalizedProduct = {
@@ -26,10 +26,17 @@ export type NormalizedOffer = {
   referencePriceCents?: number | null
   referencePriceType?: ReferencePriceType | null
   currency: string
+  /** Alleen wanneer de bron verzendkosten betrouwbaar meelevert. */
+  shippingCostCents?: number | null
   inStock: boolean
+  /** Ruwe voorraadtekst uit de bron; alleen voor uitleg in /admin. */
+  availabilityLabel?: string | null
   destinationUrl: string
+  /** Affiliate-deeplink uit de feed; heeft voorrang op destinationUrl. */
   affiliateUrl?: string | null
   promotionEndsAt?: Date | null
+  productGroup?: string | null
+  variantId?: string | null
 }
 
 export type NormalizedItem = {
@@ -47,6 +54,7 @@ export type AdapterContext = {
     feedUrl: string | null
     scrapingAllowed: boolean
     configuration: Record<string, unknown>
+    affiliateNetwork?: AffiliateNetwork
   }
   /** Maximaal aantal items dat de adapter mag opleveren. */
   limit?: number
@@ -61,6 +69,16 @@ export type AdapterResult = {
 /**
  * Iedere merchantbron implementeert deze interface. Adapters draaien alleen in
  * jobs, nooit tijdens een paginaweergave.
+ *
+ * Een adapter doet twee dingen en niet meer: de feed **ophalen** en de velden
+ * **mappen**. De drie andere onderdelen van een koppeling staan er los van:
+ *
+ * - authenticatie van het verzoek — `src/lib/scraping/authenticated-http.ts`;
+ * - affiliate-links genereren — `src/lib/affiliate/link-builder.ts`;
+ * - clicks van een subid voorzien — `src/app/go/[offerId]/route.ts`.
+ *
+ * Zo blijft een nieuwe merchant een kwestie van configuratie, en een nieuw
+ * netwerk een kwestie van één link builder.
  */
 export type MerchantAdapter = {
   readonly sourceType: SourceType

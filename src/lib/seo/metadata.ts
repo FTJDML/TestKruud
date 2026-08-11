@@ -8,6 +8,24 @@ export function absoluteUrl(path = '/'): string {
   return `${publicConfig.siteUrl}${path.startsWith('/') ? path : `/${path}`}`
 }
 
+/**
+ * Absolute URL van een afbeelding, veilig voor beide gevallen:
+ *
+ * - een lokaal pad (`/demo/x.svg`) wordt onze eigen domeinnaam ervoor;
+ * - een externe URL (`https://cdn.merchant.nl/x.jpg`) blijft ongewijzigd.
+ *
+ * Zonder deze functie ontstaat `https://site.nl/https://merchant...`, wat zowel
+ * Open Graph als structured data ongeldig maakt.
+ */
+export function absoluteImageUrl(image: string | null | undefined): string {
+  const value = (image ?? '').trim()
+  if (value.length === 0) return absoluteUrl('/image-unavailable.svg')
+  if (/^https?:\/\//i.test(value)) return value
+  // Protocol-relatieve URL's (//cdn.example/x.jpg) krijgen https.
+  if (value.startsWith('//')) return `https:${value}`
+  return absoluteUrl(value)
+}
+
 type PageMetadataInput = {
   title: string
   description: string
@@ -31,7 +49,7 @@ export function buildMetadata({
   // Zolang SEARCH_ENGINE_INDEXING_ENABLED uit staat, krijgt de hele site
   // noindex. Dat voorkomt dat een acceptatieomgeving wordt geïndexeerd.
   const blocked = noindex || !searchEngineIndexingEnabled()
-  const ogImage = image ? (image.startsWith('http') ? image : absoluteUrl(image)) : absoluteUrl('/demo/placeholder.svg')
+  const ogImage = absoluteImageUrl(image)
 
   return {
     title,

@@ -3,6 +3,9 @@ import { prisma } from '@/lib/database/client'
 import { computeDealPricing } from '@/lib/pricing/deal'
 import { isSafeDestination, resolveDestination } from '@/lib/deals/outbound'
 import { affiliateLinksEnabled } from '@/lib/env'
+import { linkBuilderFor } from '@/lib/affiliate/networks'
+import { affiliateConfigSchema } from '@/lib/affiliate/types'
+import { safeSubId } from '@/lib/affiliate/subid'
 import { readVisitorId } from '@/lib/saves/visitor'
 import { trackServerEvent } from '@/lib/analytics/events'
 import { errorMessage, logger } from '@/lib/logger'
@@ -11,19 +14,25 @@ export const dynamic = 'force-dynamic'
 
 /**
  * Centrale uitgaande route. Zoekt de aanbieding, controleert of zij actief is,
- * registreert de klik en stuurt tijdelijk door naar de affiliate-URL wanneer die
- * bestaat, en anders naar de gewone bestemming. De frontend hoeft niet te
- * veranderen zodra affiliate-links worden toegevoegd.
+ * registreert de klik en stuurt tijdelijk door.
+ *
+ * De bestemming komt van de link builder van het netwerk van de merchant. Die
+ * voegt het subid toe dat bij de plaatsing hoort (`home_hero`,
+ * `home_best_deals_3`, `category_keuken_5`, `product_related_2`), zodat later
+ * per positie te zien is wat werkt. Is een netwerk niet geconfigureerd, dan gaat
+ * de bezoeker gewoon naar de winkel: een onvolledige affiliateopzet mag nooit een
+ * doodlopende link opleveren.
  */
 export async function GET(request: Request, context: { params: Promise<{ offerId: string }> }) {
   const { offerId } = await context.params
   const source = new URL(request.url).searchParams.get('source') ?? 'onbekend'
+  const subId = safeSubId(source)
 
   const offer = await prisma.offer.findUnique({
     where: { id: offerId },
     include: {
       product: { select: { id: true, slug: true, status: true } },
-      merchant: { select: { id: true, enabled: true } },
+      merchant: { select: { id: true, slug: true, enabled: true, affiliateNetwork: true, configuration: true } },
     },
   })
 
@@ -37,9 +46,41 @@ export async function GET(request: Request, context: { params: Promise<{ offerId
     return NextResponse.redirect(new URL(`/product/${offer.product.slug}`, request.url), 307)
   }
 
-  const target = resolveDestination(offer, { affiliateLinksEnabled: affiliateLinksEnabled() })
+  const withAffiliate = affiliateLinksEnabled()
+  const network = withAffiliate ? offer.merchant.affiliateNetwork : 'DIRECT'
+  const merchantConfig = (offer.merchant.configuration ?? {}) as { affiliate?: unknown }
+  const parsedConfig = affiliateConfigSchema.safeParse({
+    network,
+    ...(typeof merchantConfig.affiliate === 'object' && merchantConfig.affiliate !== null
+      ? merchantConfig.affiliate
+      : {}),
+  })
+  const config = parsedConfig.success ? parsedConfig.data : { network }
+
+  const link = linkBuilderFor(network).buildLink(
+    {
+      destinationUrl: offer.destinationUrl,
+      affiliateUrl: withAffiliate ? offer.affiliateUrl : null,
+    },
+    { subId, productId: offer.product.id, offerId: offer.id },
+    config,
+  )
+
+  // Zonder werkende netwerkconfiguratie: gewone bestemming, met een duidelijke
+  // melding in de log. De bezoeker merkt er niets van.
+  const target = link.ok
+    ? link.url
+    : resolveDestination(offer, { affiliateLinksEnabled: withAffiliate })
+  if (!link.ok) {
+    logger.warn('Affiliatelink niet gebouwd; gewone bestemming gebruikt', {
+      merchant: offer.merchant.slug,
+      network,
+      reason: link.reason,
+    })
+  }
+
   if (!isSafeDestination(target)) {
-    logger.error('Onveilige bestemming geweigerd', { offerId, target })
+    logger.error('Onveilige bestemming geweigerd', { offerId, merchant: offer.merchant.slug })
     return NextResponse.json({ error: 'Ongeldige bestemming.' }, { status: 400 })
   }
 
@@ -51,11 +92,11 @@ export async function GET(request: Request, context: { params: Promise<{ offerId
         offerId: offer.id,
         merchantId: offer.merchant.id,
         anonymousVisitorId: visitorId,
-        source: source.slice(0, 60),
+        source: subId.slice(0, 60),
       },
     })
     await trackServerEvent(
-      { type: 'outbound_click', productId: offer.product.id, offerId: offer.id, source },
+      { type: 'outbound_click', productId: offer.product.id, offerId: offer.id, source: subId },
       { visitorId },
     )
   } catch (error) {

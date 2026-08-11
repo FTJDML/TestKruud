@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client'
-import { demoContentEnabled } from '@/lib/env'
+import { editionLimitsFromEnv } from '@/lib/env'
+import { publicProductFilter } from '@/lib/products/visibility'
 import { editionDate } from '@/lib/deals/edition-date'
 import { isPublishableSelection, selectEdition, type EditionCandidate } from '@/lib/deals/edition'
 import { computeDealPricing } from '@/lib/pricing/deal'
@@ -19,16 +20,15 @@ export async function collectEditionCandidates(
   prisma: PrismaClient,
   now: Date = new Date(),
 ): Promise<EditionCandidate[]> {
+  // Exact dezelfde filter als de publieke pagina's: een product dat publiek
+  // niet bestaat, hoort ook niet in de editie te staan.
   const products = await prisma.product.findMany({
-    // Zonder demo-inhoud horen demo-producten ook niet in de editie: ze zijn
-    // publiek onzichtbaar en zouden een lege homepage opleveren.
-    where: {
-      status: 'PUBLISHED',
-      editorial: { isNot: null },
-      ...(demoContentEnabled() ? {} : { isDemo: false }),
-    },
+    where: publicProductFilter(),
     include: {
       editorial: { select: { id: true } },
+      analysis: {
+        select: { lastPriceChangeAt: true, dealDetectedAt: true, analysisVersion: true },
+      },
       offers: {
         orderBy: { currentPrice: 'asc' },
         include: { merchant: { select: { id: true, enabled: true, trustScore: true } } },
@@ -38,21 +38,40 @@ export async function collectEditionCandidates(
 
   const candidates: EditionCandidate[] = []
   for (const product of products) {
-    // De beste aanbieding die daadwerkelijk als deal telt.
-    let best: { offerId: string; merchantId: string; priceCents: number; discount: number | null; trust: number } | null =
-      null
+    // Beste actieve aanbieding: eerst een echte deal, anders de goedkoopste
+    // actieve prijs. Die laatste kan alleen in een DISCOVERY-sectie komen.
+    let best:
+      | {
+          offerId: string
+          merchantId: string
+          priceCents: number
+          discount: number | null
+          trust: number
+          qualifiesAsDeal: boolean
+          hasValidReferencePrice: boolean
+        }
+      | null = null
     for (const offer of product.offers) {
       if (!offer.merchant.enabled) continue
       const pricing = computeDealPricing(offer, now)
-      if (!pricing.qualifiesAsDeal) continue
-      if (best === null || pricing.currentPriceCents < best.priceCents) {
-        best = {
-          offerId: offer.id,
-          merchantId: offer.merchantId,
-          priceCents: pricing.currentPriceCents,
-          discount: pricing.discountPercentage,
-          trust: offer.merchant.trustScore,
-        }
+      if (!pricing.isActive) continue
+      const entry = {
+        offerId: offer.id,
+        merchantId: offer.merchantId,
+        priceCents: pricing.currentPriceCents,
+        discount: pricing.discountPercentage,
+        trust: offer.merchant.trustScore,
+        qualifiesAsDeal: pricing.qualifiesAsDeal,
+        hasValidReferencePrice: pricing.hasValidReferencePrice,
+      }
+      if (best === null) {
+        best = entry
+        continue
+      }
+      // Een geldige deal wint altijd van een gewone prijs.
+      if (entry.qualifiesAsDeal && !best.qualifiesAsDeal) best = entry
+      else if (entry.qualifiesAsDeal === best.qualifiesAsDeal && entry.priceCents < best.priceCents) {
+        best = entry
       }
     }
     if (!best) continue
@@ -67,16 +86,21 @@ export async function collectEditionCandidates(
       isUnnecessaryButGreat:
         product.primaryCategory === 'Onnodig Maar Geweldig' ||
         product.collections.includes('onnodig-maar-geweldig'),
-      qualifiesAsDeal: true,
+      qualifiesAsDeal: best.qualifiesAsDeal,
+      dealDetectedAt: product.analysis?.dealDetectedAt ?? null,
       score: {
         uniquenessScore: product.uniquenessScore,
         storyScore: product.storyScore,
         usefulnessScore: product.usefulnessScore,
         giftabilityScore: product.giftabilityScore,
         discountPercentage: best.discount,
-        hasValidReferencePrice: true,
+        hasValidReferencePrice: best.hasValidReferencePrice,
         discoveredAt: product.createdAt,
         checkedAt: now,
+        // Uit onze eigen prijsanalyse: een verse prijsdaling tilt een oud
+        // product opnieuw naar boven.
+        lastPriceChangeAt: product.analysis?.lastPriceChangeAt ?? null,
+        dealDetectedAt: product.analysis?.dealDetectedAt ?? null,
         visualQualityScore: product.visualQualityScore,
         merchantTrustScore: best.trust,
       },
@@ -96,11 +120,12 @@ export async function publishDailyEdition(
 ): Promise<EditionSummary> {
   const date = editionDate(now)
   const dateKey = date.toISOString().slice(0, 10)
+  const limits = editionLimitsFromEnv()
   const candidates = await collectEditionCandidates(prisma, now)
-  const selection = selectEdition(candidates, now)
+  const selection = selectEdition(candidates, now, limits)
 
-  if (!isPublishableSelection(selection)) {
-    const reason = `te weinig geschikte producten (hero: ${selection.hero ? 'ja' : 'nee'}, items: ${selection.items.length})`
+  if (!isPublishableSelection(selection, limits)) {
+    const reason = `te weinig geschikte producten (hero: ${selection.hero ? 'ja' : 'nee'}, items: ${selection.items.length}, minimaal ${limits.minAdditionalItems})`
     logger.warn('Editie niet gepubliceerd', { date: dateKey, reason })
     return {
       editionDate: dateKey,

@@ -4,6 +4,7 @@ import { csvFeedAdapter } from '@/merchants/adapters/csv-feed'
 import { fixtureAdapter } from '@/merchants/adapters/fixture'
 import { htmlAdapter } from '@/merchants/adapters/html'
 import { jsonFeedAdapter } from '@/merchants/adapters/json-feed'
+import { xmlFeedAdapter } from '@/merchants/adapters/xml-feed'
 
 /**
  * Registry van adapters. Een nieuwe merchantbron toevoegen betekent: adapter
@@ -14,6 +15,7 @@ const registry: Partial<Record<SourceType, MerchantAdapter>> = {
   FIXTURE: fixtureAdapter,
   JSON: jsonFeedAdapter,
   CSV: csvFeedAdapter,
+  XML: xmlFeedAdapter,
   HTML: htmlAdapter,
 }
 
@@ -23,4 +25,4 @@ export function adapterFor(sourceType: SourceType): MerchantAdapter | null {
 
 export const supportedSourceTypes = Object.keys(registry) as SourceType[]
 
-export { csvFeedAdapter, fixtureAdapter, htmlAdapter, jsonFeedAdapter }
+export { csvFeedAdapter, fixtureAdapter, htmlAdapter, jsonFeedAdapter, xmlFeedAdapter }

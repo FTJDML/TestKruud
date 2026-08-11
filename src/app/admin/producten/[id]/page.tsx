@@ -55,6 +55,12 @@ export default async function AdminProductDetail({ params }: { params: Promise<{
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
+            href={`/admin/producten/${product.id}/preview`}
+            className="inline-flex min-h-11 items-center rounded-pill border border-line px-4 text-sm font-semibold hover:border-ink"
+          >
+            Preview (ook als concept)
+          </Link>
+          <Link
             href={`/product/${product.slug}`}
             className="inline-flex min-h-11 items-center rounded-pill border border-line px-4 text-sm font-semibold hover:border-ink"
           >

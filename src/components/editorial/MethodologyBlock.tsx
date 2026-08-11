@@ -14,8 +14,8 @@ const points = [
   },
   {
     icon: ShoppingBag,
-    title: 'Wij verkopen zelf niets',
-    body: 'Je koopt altijd bij de aanbieder. Wij hebben geen winkelwagen, geen kassa en geen accounts.',
+    title: 'Onafhankelijke selectie',
+    body: 'Onze selectie hangt niet af van wie het meeste betaalt. Je rondt de aankoop af bij de aanbieder zelf.',
   },
   {
     icon: Tag,

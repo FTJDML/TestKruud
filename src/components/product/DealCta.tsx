@@ -1,11 +1,15 @@
 import { ArrowUpRight } from 'lucide-react'
 import type { DealPricing } from '@/lib/pricing/deal'
+import { placementSubId } from '@/lib/affiliate/subid'
 import { cn } from '@/lib/utils'
 
 type Props = {
   offerId: string | null
   pricing: DealPricing | null
+  /** Plaatsing, bijvoorbeeld "home_best_deals"; wordt het subid van de klik. */
   source: string
+  /** Positie binnen de plaatsing; maakt het subid specifiek per kaart. */
+  position?: number
   merchantName: string
   size?: 'card' | 'large'
   className?: string
@@ -19,7 +23,7 @@ type Props = {
  * Een DEAL krijgt de koraalrode knop "Bekijk deal", een DISCOVERY de rustige
  * outline-knop "Bekijk product".
  */
-export function DealCta({ offerId, pricing, source, merchantName, size = 'card', className }: Props) {
+export function DealCta({ offerId, pricing, source, position, merchantName, size = 'card', className }: Props) {
   if (!offerId || !pricing) {
     return (
       <p className={cn('text-sm text-muted', className)}>Geen actieve aanbieding bij een aanbieder.</p>
@@ -45,7 +49,7 @@ export function DealCta({ offerId, pricing, source, merchantName, size = 'card',
 
   return (
     <a
-      href={`/go/${offerId}?source=${encodeURIComponent(source)}`}
+      href={`/go/${offerId}?source=${encodeURIComponent(placementSubId(source, position))}`}
       target="_blank"
       rel="sponsored nofollow noopener"
       data-cta={isDeal ? 'deal' : 'discovery'}

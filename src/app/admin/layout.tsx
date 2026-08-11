@@ -14,6 +14,7 @@ const navigation = [
   { href: '/admin', label: 'Overzicht' },
   { href: '/admin/producten', label: 'Producten' },
   { href: '/admin/merchants', label: 'Merchants' },
+  { href: '/admin/integraties', label: 'Integraties' },
   { href: '/admin/runs', label: 'Runs & stale' },
   { href: '/admin/activiteit', label: 'Kliks & saves' },
 ]

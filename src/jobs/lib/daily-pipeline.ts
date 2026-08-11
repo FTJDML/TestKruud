@@ -4,6 +4,9 @@ import { errorMessage, logger } from '@/lib/logger'
 import { withConcurrency } from '@/lib/scraping/rate-limit'
 import { isDemoMerchant } from '@/merchants/sources/live-sources'
 import { generateMissingContent, type ContentSummary } from '@/jobs/lib/content'
+import { analyseAllPrices, type AnalysisSummary } from '@/jobs/lib/analyze-prices'
+import { runImageHealthCheck, validatePendingImages, type ImageJobSummary } from '@/jobs/lib/images'
+import { promotePublishableProducts, type PromotionSummary } from '@/jobs/lib/publish-products'
 import { ingestMerchant, markStaleOffers, type IngestSummary } from '@/jobs/lib/ingest'
 import { publishDailyEdition, type EditionSummary } from '@/jobs/lib/publish-edition'
 
@@ -12,7 +15,11 @@ export type DailyPipelineResult = {
   finishedAt: string
   ingest: IngestSummary[]
   staleOffers: number
+  images: ImageJobSummary
+  imageHealth: ImageJobSummary
+  analysis: AnalysisSummary
   content: ContentSummary
+  promotion: PromotionSummary
   edition: EditionSummary
   errors: string[]
 }
@@ -64,6 +71,37 @@ export async function runDailyPipeline(
 
   const staleOffers = await markStaleOffers(prisma, startedAt)
 
+  // Afbeeldingen eerst: een product zonder geldige afbeelding wordt niet
+  // gepubliceerd en hoort dus ook niet in de analyse of de editie thuis.
+  let images: ImageJobSummary = { checked: 0, valid: 0, invalid: 0, keptPrevious: 0, failed: 0 }
+  try {
+    images = await validatePendingImages(prisma, { now: startedAt })
+  } catch (error) {
+    const reason = errorMessage(error)
+    errors.push(`afbeeldingen: ${reason}`)
+    logger.error('Afbeeldingcontrole mislukt', { reason })
+  }
+
+  let imageHealth: ImageJobSummary = { checked: 0, valid: 0, invalid: 0, keptPrevious: 0, failed: 0 }
+  try {
+    imageHealth = await runImageHealthCheck(prisma, { now: startedAt })
+  } catch (error) {
+    const reason = errorMessage(error)
+    errors.push(`image-health: ${reason}`)
+    logger.error('Image-health mislukt', { reason })
+  }
+
+  // Prijsanalyse na de import en vóór de selectie: de editie kiest met verse
+  // cijfers, inclusief verse prijsdalingen.
+  let analysis: AnalysisSummary = { analysed: 0, skipped: 0, failed: 0 }
+  try {
+    analysis = await analyseAllPrices(prisma, { now: startedAt })
+  } catch (error) {
+    const reason = errorMessage(error)
+    errors.push(`prijsanalyse: ${reason}`)
+    logger.error('Prijsanalyse mislukt', { reason })
+  }
+
   let content: ContentSummary = { generated: 0, skipped: 0, needsReview: 0, blocked: 0, failed: 0 }
   if (!options.skipContent) {
     try {
@@ -73,6 +111,16 @@ export async function runDailyPipeline(
       errors.push(`content: ${reason}`)
       logger.error('Contentstap mislukt', { reason })
     }
+  }
+
+  // Pas nu kan een concept publiek worden: geldige afbeelding én content.
+  let promotion: PromotionSummary = { promoted: 0, waitingForImage: 0, waitingForContent: 0 }
+  try {
+    promotion = await promotePublishableProducts(prisma, startedAt)
+  } catch (error) {
+    const reason = errorMessage(error)
+    errors.push(`publiceren: ${reason}`)
+    logger.error('Promoveren van producten mislukt', { reason })
   }
 
   let edition: EditionSummary = {
@@ -96,7 +144,11 @@ export async function runDailyPipeline(
     finishedAt: new Date().toISOString(),
     ingest,
     staleOffers,
+    images,
+    imageHealth,
+    analysis,
     content,
+    promotion,
     edition,
     errors,
   }
@@ -106,6 +158,10 @@ export async function runDailyPipeline(
     items: result.edition.itemCount,
     contentGenerated: result.content.generated,
     contentBlocked: result.content.blocked,
+    imagesValid: result.images.valid,
+    imagesInvalid: result.images.invalid,
+    analysed: result.analysis.analysed,
+    promoted: result.promotion.promoted,
     staleOffers,
     errors: errors.length,
   })

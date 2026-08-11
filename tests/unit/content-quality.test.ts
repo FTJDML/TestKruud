@@ -24,7 +24,7 @@ function payload(overrides: Partial<EditorialContentPayload> = {}): EditorialCon
     teaser:
       'Aan de buitenkant lijkt het een rustige ronde bijzettafel. Binnenin houdt hij vier liter drinken koud, terwijl de rand ook als laadpunt voor je telefoon werkt. Handig op een avond waarop je niet meer wilt opstaan voor iets koud.',
     longDescription:
-      'Op het eerste gezicht is dit een gewone bijzettafel voor de woonkamer. Kijk je beter, dan blijkt er een gekoeld compartiment onder het blad te zitten. Het verschil zit in het moment waarop je het gebruikt: op een lange avond op de bank merk je waarom iemand dit heeft gemaakt. Huisvondst verkoopt en verzendt dit product; wij verkopen zelf niets en controleren alleen de prijs. Specificaties, garantie en levertijd staan op de productpagina van de aanbieder.',
+      'Op het eerste gezicht is dit een gewone bijzettafel voor de woonkamer. Kijk je beter, dan blijkt er een gekoeld compartiment onder het blad te zitten. Het verschil zit in het moment waarop je het gebruikt: op een lange avond op de bank merk je waarom iemand dit heeft gemaakt. Huisvondst verkoopt en verzendt dit product; wij volgen de prijs en de voorraad. Specificaties, garantie en levertijd staan op de productpagina van de aanbieder.',
     whyItStandsOut: 'Twee functies die je nooit in hetzelfde meubel verwacht, achter een rustige vorm.',
     bestFor: ['lange avonden op de bank', 'kleine woonkamers'],
     caveat: 'Er zit een compressor in: in een stille kamer hoor je hem zachtjes aanslaan.',

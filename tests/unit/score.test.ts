@@ -61,17 +61,19 @@ describe('kortingskwaliteit', () => {
 
 describe('versheid', () => {
   it('is hoog voor pas ontdekte, net gecontroleerde producten', () => {
-    expect(freshnessScore(now, now, now)).toBe(100)
+    expect(freshnessScore({ discoveredAt: now, checkedAt: now }, now)).toBe(100)
   })
 
   it('daalt met de leeftijd van de vondst', () => {
     const old = new Date(now.getTime() - 20 * 86_400_000)
-    expect(freshnessScore(old, now, now)).toBeLessThan(freshnessScore(now, now, now))
+    expect(freshnessScore({ discoveredAt: old, checkedAt: now }, now)).toBeLessThan(
+      freshnessScore({ discoveredAt: now, checkedAt: now }, now),
+    )
   })
 
   it('blijft binnen 0 en 100', () => {
     const ancient = new Date(now.getTime() - 400 * 86_400_000)
-    const score = freshnessScore(ancient, ancient, now)
+    const score = freshnessScore({ discoveredAt: ancient, checkedAt: ancient }, now)
     expect(score).toBeGreaterThanOrEqual(0)
     expect(score).toBeLessThanOrEqual(100)
   })

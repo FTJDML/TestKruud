@@ -6,7 +6,7 @@ import { buildMetadata } from '@/lib/seo/metadata'
 export const metadata: Metadata = buildMetadata({
   title: 'Over ons',
   description:
-    'HomeAndLivingDeals.nl is een Nederlands magazine voor bijzondere producten voor in en om het huis. Wij verkopen zelf niets.',
+    'HomeAndLivingDeals.nl is een Nederlands magazine voor bijzondere producten en opvallende prijsdalingen voor in en om het huis.',
   path: '/over',
 })
 
@@ -26,7 +26,7 @@ export default function AboutPage() {
 
       <h2>Wat dit niet is</h2>
       <ul>
-        <li>Wij verkopen zelf niets: er is geen winkelwagen, geen kassa en geen account.</li>
+        <li>Je rondt je aankoop af bij de aanbieder: er is hier geen winkelwagen, geen kassa en geen account.</li>
         <li>Wij schrijven geen reviews en geven geen sterren; wij hebben de producten niet zelf getest.</li>
         <li>Wij verzinnen geen aftellers, geen schaarste en geen kortingen.</li>
       </ul>

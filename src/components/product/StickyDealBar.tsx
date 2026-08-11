@@ -29,7 +29,7 @@ export function StickyDealBar({
         <DealCta
           offerId={offerId}
           pricing={pricing}
-          source="product-sticky"
+          source="product_sticky"
           merchantName={merchantName}
           className="shrink-0"
         />

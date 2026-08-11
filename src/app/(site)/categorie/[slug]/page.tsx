@@ -196,7 +196,7 @@ export default async function CategoryPage({ params, searchParams }: Props) {
             </Link>
           </EmptyState>
         ) : (
-          <ProductGrid products={result.items} surface={`categorie-${category.slug}`} priorityCount={2} />
+          <ProductGrid products={result.items} surface={`category_${category.slug}`} priorityCount={2} />
         )}
       </Container>
 

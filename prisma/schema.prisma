@@ -19,6 +19,66 @@ enum SourceType {
   API
 }
 
+/**
+ * Betrouwbaarheid van de productafbeelding; alleen VALID mag publiek.
+ */
+enum ImageStatus {
+  PENDING
+  VALID
+  INVALID
+}
+
+/**
+ * Hoe goed wij dit product kennen. Bepaalt wat de redactionele tekst mag
+ * beweren: zonder HANDS_ON_TESTED nooit eerstehandservaring.
+ */
+enum ExperienceType {
+  NOT_TESTED
+  DESK_RESEARCHED
+  HANDS_ON_TESTED
+}
+
+/**
+ * Affiliatenetwerk van een merchant; DIRECT betekent zonder netwerk.
+ */
+enum AffiliateNetwork {
+  DIRECT
+  BOL
+  AWIN
+  DAISYCON
+  TRADETRACKER
+  AMAZON_CREATORS
+}
+
+/**
+ * Hoeveel meetpunten er onder een prijsanalyse zitten.
+ */
+enum ConfidenceLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+/**
+ * Hoe twee aanbiedingen aan hetzelfde product zijn gekoppeld.
+ */
+enum MatchMethod {
+  EAN
+  BRAND_MODEL
+  MERCHANT_EXTERNAL_ID
+  NORMALIZED_TITLE
+  FUZZY
+}
+
+/**
+ * Fuzzy matches worden nooit automatisch samengevoegd.
+ */
+enum MatchCandidateStatus {
+  OPEN
+  CONFIRMED
+  REJECTED
+}
+
 enum ProductStatus {
   CANDIDATE
   DRAFT
@@ -44,10 +104,16 @@ enum EditionStatus {
 
 enum EditionSection {
   HERO
+  /**
+   * Historisch; nieuwe edities gebruiken BEST_DEALS.
+   */
   TODAY
+  BEST_DEALS
+  LATEST_PRICE_DROPS
   EDITORS_PICK
   UNDER_100
   UNNECESSARY_BUT_GREAT
+  DISCOVERY
 }
 
 enum ScrapeRunStatus {
@@ -58,18 +124,27 @@ enum ScrapeRunStatus {
 }
 
 model Merchant {
-  id              String     @id @default(cuid())
-  name            String
-  slug            String     @unique
-  domain          String
-  sourceType      SourceType @default(FIXTURE)
-  enabled         Boolean    @default(true)
-  scrapingAllowed Boolean    @default(false)
-  feedUrl         String?
-  trustScore      Int        @default(50)
-  configuration   Json       @default("{}")
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id               String           @id @default(cuid())
+  name             String
+  slug             String           @unique
+  domain           String
+  sourceType       SourceType       @default(FIXTURE)
+  enabled          Boolean          @default(true)
+  scrapingAllowed  Boolean          @default(false)
+  feedUrl          String?
+  trustScore       Int              @default(50)
+  /**
+   * Feedconfiguratie en veldmapping. Bevat nooit secrets: alleen de namen van
+   * environment variables (zie src/merchants/schemas/feed-config.ts).
+   */
+  configuration    Json             @default("{}")
+  affiliateNetwork AffiliateNetwork @default(DIRECT)
+  /**
+   * Extra hosts waarvan next/image afbeeldingen mag optimaliseren.
+   */
+  imageHosts       String[]         @default([])
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   offers         Offer[]
   scrapeRuns     ScrapeRun[]
@@ -79,37 +154,59 @@ model Merchant {
 }
 
 model Product {
-  id                     String        @id @default(cuid())
-  slug                   String        @unique
+  id                     String         @id @default(cuid())
+  slug                   String         @unique
   externalId             String?
-  ean                    String?       @unique
+  ean                    String?        @unique
   brand                  String?
   model                  String?
   title                  String
   normalizedTitle        String
   primaryCategory        String
   shortSourceDescription String?
-  specifications         Json          @default("{}")
+  specifications         Json           @default("{}")
   imageUrl               String
   imageAlt               String
-  status                 ProductStatus @default(CANDIDATE)
-  isDemo                 Boolean       @default(false)
-  uniquenessScore        Int           @default(0)
-  usefulnessScore        Int           @default(0)
-  storyScore             Int           @default(0)
-  giftabilityScore       Int           @default(0)
-  visualQualityScore     Int           @default(60)
-  collections            String[]      @default([])
+  /**
+   * Alleen VALID komt in publieke grids, edities, sitemap en JSON-LD.
+   */
+  imageStatus            ImageStatus    @default(PENDING)
+  imageCheckedAt         DateTime?
+  imageContentType       String?
+  imageWidth             Int?
+  imageHeight            Int?
+  /**
+   * De URL zoals de bron haar aanleverde, vóór normalisatie.
+   */
+  imageSourceUrl         String?
+  imageFailureReason     String?
+  /**
+   * Laatst gevalideerde afbeelding; een kapotte nieuwe URL vervangt haar niet.
+   */
+  lastValidImageUrl      String?
+  experienceType         ExperienceType @default(NOT_TESTED)
+  status                 ProductStatus  @default(CANDIDATE)
+  isDemo                 Boolean        @default(false)
+  uniquenessScore        Int            @default(0)
+  usefulnessScore        Int            @default(0)
+  storyScore             Int            @default(0)
+  giftabilityScore       Int            @default(0)
+  visualQualityScore     Int            @default(60)
+  collections            String[]       @default([])
   publishedAt            DateTime?
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 
-  offers         Offer[]
-  editorial      EditorialContent?
-  editionItems   DailyEditionItem[]
-  saves          AnonymousSave[]
-  outboundClicks OutboundClick[]
+  offers          Offer[]
+  editorial       EditorialContent?
+  analysis        DealAnalysis?
+  editionItems    DailyEditionItem[]
+  saves           AnonymousSave[]
+  outboundClicks  OutboundClick[]
+  matchCandidates ProductMatchCandidate[] @relation("matchSource")
+  matchedBy       ProductMatchCandidate[] @relation("matchTarget")
 
+  @@index([status, imageStatus])
   @@index([status, primaryCategory])
   @@index([normalizedTitle])
   @@index([createdAt])
@@ -125,7 +222,17 @@ model Offer {
   referencePriceType ReferencePriceType?
   currency           String              @default("EUR")
   discountPercentage Int?
+  /**
+   * Alleen gevuld wanneer de bron verzendkosten betrouwbaar meelevert.
+   */
+  shippingCost       Decimal?            @db.Decimal(10, 2)
   inStock            Boolean             @default(true)
+  /**
+   * Ruwe voorraadtekst uit de bron, voor uitleg in het adminpaneel.
+   */
+  availabilityLabel  String?
+  productGroup       String?
+  variantId          String?
   destinationUrl     String
   affiliateUrl       String?
   promotionEndsAt    DateTime?
@@ -134,8 +241,8 @@ model Offer {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
-  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  merchant       Merchant        @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  product        Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  merchant       Merchant           @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   snapshots      PriceSnapshot[]
   editionItems   DailyEditionItem[]
   outboundClicks OutboundClick[]
@@ -159,25 +266,98 @@ model PriceSnapshot {
 }
 
 model EditorialContent {
-  id              String   @id @default(cuid())
-  productId       String   @unique
-  headline        String
-  teaser          String
-  longDescription String
-  whyItStandsOut  String
-  bestFor         Json     @default("[]")
-  caveat          String
-  seoTitle        String
-  metaDescription String
-  tags            Json     @default("[]")
-  promptVersion   String
-  aiProvider      String
-  sourceFactsHash String?
-  generatedAt     DateTime @default(now())
-  reviewedAt      DateTime?
-  updatedAt       DateTime @updatedAt
+  id                 String         @id @default(cuid())
+  productId          String         @unique
+  headline           String
+  teaser             String
+  longDescription    String
+  whyItStandsOut     String
+  bestFor            Json           @default("[]")
+  caveat             String
+  seoTitle           String
+  metaDescription    String
+  tags               Json           @default("[]")
+  promptVersion      String
+  aiProvider         String
+  sourceFactsHash    String?
+  /**
+   * Versie van de prijsanalyse waarop deze tekst is gebaseerd.
+   */
+  analysisVersion    String?
+  generationProvider String?
+  generationModel    String?
+  generationWarnings Json           @default("[]")
+  /**
+   * Korte opsomming van de feiten waarop de tekst zich baseert.
+   */
+  evidenceSummary    String?
+  experienceType     ExperienceType @default(NOT_TESTED)
+  generatedAt        DateTime       @default(now())
+  reviewedAt         DateTime?
+  updatedAt          DateTime       @updatedAt
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * Eigen prijsanalyse, volledig berekend uit PriceSnapshot-data door gewone
+ * code. AI berekent hier niets: zie src/lib/analysis/price-analysis.ts.
+ */
+model DealAnalysis {
+  id                        String          @id @default(cuid())
+  productId                 String          @unique
+  currency                  String          @default("EUR")
+  currentPrice              Decimal         @db.Decimal(10, 2)
+  previousObservedPrice     Decimal?        @db.Decimal(10, 2)
+  lowestPrice30Days         Decimal?        @db.Decimal(10, 2)
+  medianPrice90Days         Decimal?        @db.Decimal(10, 2)
+  lowestPriceAllTime        Decimal?        @db.Decimal(10, 2)
+  highestPrice90Days        Decimal?        @db.Decimal(10, 2)
+  priceChangeAmount         Decimal?        @db.Decimal(10, 2)
+  priceChangePercentage     Float?
+  numberOfObservedPrices    Int             @default(0)
+  numberOfComparedMerchants Int             @default(0)
+  cheapestMerchantId        String?
+  nextCheapestPrice         Decimal?        @db.Decimal(10, 2)
+  differenceToNextMerchant  Decimal?        @db.Decimal(10, 2)
+  firstSeenAt               DateTime?
+  lastSeenAt                DateTime?
+  lastPriceChangeAt         DateTime?
+  dealDetectedAt            DateTime?
+  calculatedAt              DateTime        @default(now())
+  confidenceLevel           ConfidenceLevel @default(LOW)
+  analysisVersion           String
+  /**
+   * Aantal dagen tussen de eerste en de laatste meting.
+   */
+  historyDays               Int             @default(0)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([dealDetectedAt])
+  @@index([lastPriceChangeAt])
+}
+
+/**
+ * Mogelijke koppeling tussen twee producten. Alleen fuzzy matches komen hier
+ * terecht: die worden nooit automatisch samengevoegd, maar wachten op een mens.
+ */
+model ProductMatchCandidate {
+  id                 String               @id @default(cuid())
+  productId          String
+  candidateProductId String
+  method             MatchMethod
+  similarity         Float
+  status             MatchCandidateStatus @default(OPEN)
+  reason             String?
+  createdAt          DateTime             @default(now())
+  reviewedAt         DateTime?
+
+  product          Product @relation("matchSource", fields: [productId], references: [id], onDelete: Cascade)
+  candidateProduct Product @relation("matchTarget", fields: [candidateProductId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, candidateProductId])
+  @@index([status])
 }
 
 model DailyEdition {

@@ -59,6 +59,23 @@ describe.skipIf(!hasDatabase)('zichtbaarheid van demo-inhoud', () => {
           isDemo,
           status: 'PUBLISHED',
           publishedAt: new Date(),
+          // Publiek zichtbaar vraagt een gevalideerde afbeelding én content.
+          imageStatus: 'VALID',
+          imageCheckedAt: new Date(),
+          lastValidImageUrl: '/demo/placeholder.svg',
+          editorial: {
+            create: {
+              headline: `Kop voor ${slug}`,
+              teaser: 'Een korte Nederlandse teaser voor deze zichtbaarheidstest.',
+              longDescription: 'Een langere Nederlandse beschrijving voor deze zichtbaarheidstest.',
+              whyItStandsOut: 'Dit product bestaat alleen om de zichtbaarheid te testen.',
+              caveat: 'Niet echt te koop; dit is een testproduct.',
+              seoTitle: 'Zichtbaarheidstest',
+              metaDescription: 'Testproduct voor de zichtbaarheidsregels.',
+              promptVersion: 'test',
+              aiProvider: 'test',
+            },
+          },
           offers: {
             create: {
               merchantId: merchant.id,

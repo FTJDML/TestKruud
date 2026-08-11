@@ -14,7 +14,7 @@ export default function AffiliatePage() {
   return (
     <TextPage
       title="Affiliateverklaring"
-      intro="Wij verkopen zelf niets. Op termijn verdienen wij mogelijk een commissie wanneer je via ons doorklikt naar een aanbieder."
+      intro="Op termijn verdienen wij mogelijk een commissie wanneer je via ons doorklikt naar een aanbieder. Wat dat betekent, staat hieronder."
       path="/affiliateverklaring"
     >
       <h2>Status</h2>

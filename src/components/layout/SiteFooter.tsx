@@ -21,8 +21,7 @@ export function SiteFooter() {
           <div>
             <Logo />
             <p className="mt-4 max-w-xs text-sm text-muted">
-              Een Nederlands magazine voor spullen waarvan je vijf minuten geleden nog niet wist dat je ze wilde.
-              Wij verkopen zelf niets.
+              Bijzondere producten, actuele prijzen en opvallende prijsdalingen voor thuis en dagelijks leven.
             </p>
           </div>
 
@@ -79,9 +78,7 @@ export function SiteFooter() {
 
         <div className="flex flex-col gap-2 border-t border-line py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
           <p>© {new Date().getFullYear()} HomeAndLivingDeals.nl — alle prijzen onder voorbehoud.</p>
-          <p>
-            Prijzen komen van de aanbieder en worden dagelijks gecontroleerd. Wij verkopen zelf geen producten.
-          </p>
+          <p>Prijzen komen van de aanbieder en worden dagelijks gecontroleerd.</p>
         </div>
       </Container>
     </footer>

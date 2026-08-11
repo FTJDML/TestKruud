@@ -13,7 +13,7 @@ function TopBar() {
     <div className="border-b border-line bg-card">
       <Container>
         <p className="py-2 text-center text-[11px] font-medium tracking-wide text-muted sm:text-xs">
-          Elke dag nieuwe, bijzondere vondsten · Prijzen dagelijks gecontroleerd · Wij verkopen zelf niets
+          Elke dag nieuwe vondsten · Prijzen dagelijks gecontroleerd
         </p>
       </Container>
     </div>

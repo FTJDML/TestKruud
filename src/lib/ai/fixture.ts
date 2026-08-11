@@ -1,7 +1,8 @@
-import type {
-  EditorialContentProvider,
-  EditorialGenerationResult,
-  ProductFacts,
+import {
+  buildEvidenceSummary,
+  type EditorialContentProvider,
+  type EditorialGenerationResult,
+  type ProductFacts,
 } from '@/lib/ai/provider'
 import { checkContentStyle, editorialContentSchema, type EditorialContentPayload } from '@/lib/ai/schema'
 import { buildTemplateContent } from '@/lib/ai/template'
@@ -30,6 +31,8 @@ export function createFixtureProvider(lookup: FixtureLookup): EditorialContentPr
         promptVersion: FIXTURE_PROMPT_VERSION,
         needsReview: false,
         warnings,
+        model: null,
+        evidenceSummary: buildEvidenceSummary(facts),
       })
     },
   }

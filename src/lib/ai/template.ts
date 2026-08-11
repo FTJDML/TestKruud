@@ -1,8 +1,10 @@
 import { categorySlugForName } from '@/lib/categories'
-import type {
-  EditorialContentProvider,
-  EditorialGenerationResult,
-  ProductFacts,
+import {
+  buildEvidenceSummary,
+  mayClaimFirstHandExperience,
+  type EditorialContentProvider,
+  type EditorialGenerationResult,
+  type ProductFacts,
 } from '@/lib/ai/provider'
 import { looksDutch } from '@/lib/ai/language'
 import { checkContentStyle, editorialContentSchema } from '@/lib/ai/schema'
@@ -238,6 +240,21 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
           .join(', ')}.`
       : ''
 
+  // Onze eigen prijsanalyse komt níet in de opgeslagen tekst: prijzen en
+  // percentages veranderen dagelijks, en de productpagina toont ze los in
+  // "Onze prijsanalyse", rechtstreeks uit de meetgegevens. Wat hier wel mag, is
+  // een feit dat niet over een bedrag gaat: bij hoeveel aanbieders wij volgen.
+  const analysis = facts.priceAnalysis ?? null
+  const comparisonSentence =
+    analysis && analysis.numberOfComparedMerchants >= 2
+      ? `Wij volgen dit product bij ${analysis.numberOfComparedMerchants} aanbieders en vergelijken hun prijzen dagelijks.`
+      : ''
+  // Zonder eigen test nooit "wij vonden" of "in gebruik voelt het"; de tekst
+  // blijft dan bij wat de aanbieder en onze metingen zeggen.
+  const testedSentence = mayClaimFirstHandExperience(facts)
+    ? 'Wij hebben dit product zelf gebruikt.'
+    : ''
+
   const headline = truncate(`${name} maakt ${angle}`, HEADLINE_MAX_LENGTH)
 
   const teaser = fitWords(
@@ -245,6 +262,9 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
       // Bewust geen "valt op": alle situatiezinnen beginnen met een
       // voorzetsel, wat anders "valt op op een avond" oplevert.
       `Deze ${name.toLowerCase()} bewijst zich ${voice.situation}.`,
+      // Direct na de openingszin, zodat deze zin niet als laatste buiten het
+      // woordbereik valt; hij is leeg zolang wij het product niet zelf kenden.
+      testedSentence,
       source.length > 0 ? `${source.replace(/\s+$/, '').replace(/\.$/, '')}.` : '',
       pickVariant(
         [
@@ -295,6 +315,7 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
       ),
       source.length > 0 ? `${source.replace(/\.$/, '')}.` : '',
       specSentence,
+      comparisonSentence,
       pickVariant(
         [
           `Het verschil zit in het moment waarop je het gebruikt: ${voice.situation} merk je waarom dit product bestaat.`,
@@ -303,12 +324,12 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
         ],
         seed,
       ),
-      // Eén vaste openheid: wij verkopen niets en controleren alleen de prijs.
+      // Openheid over de rolverdeling, zonder vaste slogan.
       pickVariant(
         [
-          `${facts.merchantName} verkoopt en verzendt dit product; wij verkopen zelf niets en controleren alleen de prijs.`,
-          `De verkoop en verzending liggen bij ${facts.merchantName}. Wij houden bij wat het kost en verkopen zelf niets.`,
-          `Wij verkopen niets zelf: ${facts.merchantName} levert, wij controleren de prijs en de voorraad.`,
+          `${facts.merchantName} verkoopt en verzendt dit product; wij volgen de prijs en de voorraad.`,
+          `De verkoop en verzending liggen bij ${facts.merchantName}. Wij houden bij wat het daar kost.`,
+          `${facts.merchantName} levert dit product; wij controleren dagelijks de prijs.`,
         ],
         seed,
       ),
@@ -368,9 +389,16 @@ export function buildTemplateContent(facts: ProductFacts): EditorialGenerationRe
     content: parsed,
     provider: 'template',
     promptVersion: TEMPLATE_PROMPT_VERSION,
-    // Templatecontent is voorlopig en hoort door een mens te worden bijgewerkt.
-    needsReview: true,
+    /**
+     * Deze provider is deterministisch en gebruikt alleen gecontroleerde feiten;
+     * er valt niets te hallucineren. Handmatige review is daarom niet verplicht
+     * voordat de tekst publiek mag — dat geldt wél voor echte AI-content (zie
+     * `src/lib/ai/anthropic.ts`).
+     */
+    needsReview: false,
     warnings,
+    model: null,
+    evidenceSummary: buildEvidenceSummary(facts),
   }
 }
 

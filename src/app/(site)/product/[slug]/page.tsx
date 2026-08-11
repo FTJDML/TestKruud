@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { AlertTriangle, Sparkles, Users } from 'lucide-react'
+import { AlertTriangle, Database, LineChart, Sparkles, Users } from 'lucide-react'
 import { AdSlot } from '@/components/ads/AdSlot'
 import { Breadcrumbs, type Crumb } from '@/components/product/Breadcrumbs'
 import { DealCta } from '@/components/product/DealCta'
@@ -13,11 +13,12 @@ import { SaveButton } from '@/components/product/SaveButton'
 import { StickyDealBar } from '@/components/product/StickyDealBar'
 import { Badge } from '@/components/ui/Badge'
 import { Container } from '@/components/ui/Container'
+import { AffiliateDisclosure } from '@/components/ui/AffiliateDisclosure'
 import { DemoNotice } from '@/components/ui/DemoNotice'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { categoryBySlug, categorySlugForName } from '@/lib/categories'
-import { getProductBySlug, getRelatedProducts } from '@/lib/database/queries'
+import { getComparableProducts, getProductBySlug } from '@/lib/database/queries'
 import { breadcrumbJsonLd, productJsonLd } from '@/lib/seo/jsonld'
 import { buildMetadata } from '@/lib/seo/metadata'
 
@@ -50,7 +51,7 @@ export default async function ProductPage({ params }: Props) {
   const product = await getProductBySlug(slug)
   if (!product) notFound()
 
-  const related = await getRelatedProducts(product, 4)
+  const related = await getComparableProducts(product, 4)
   const category = categoryBySlug(categorySlugForName(product.category))
   const crumbs: Crumb[] = [
     { name: 'Home', path: '/' },
@@ -118,7 +119,7 @@ export default async function ProductPage({ params }: Props) {
                 <DealCta
                   offerId={product.offerId}
                   pricing={product.pricing}
-                  source="product-detail"
+                  source="product_detail"
                   merchantName={product.merchantName}
                   size="large"
                 />
@@ -130,14 +131,18 @@ export default async function ProductPage({ params }: Props) {
                 />
               </div>
 
-              <p className="mt-4 border-t border-line pt-3 text-xs text-muted">
-                Commerciële samenwerking: deze knop gaat naar de website van de aanbieder. Wij verkopen zelf
-                niets. Zodra wij affiliate-links gebruiken, vermelden wij dat hier en op onze{' '}
-                <Link href="/affiliateverklaring" className="underline hover:text-accent">
-                  affiliatepagina
-                </Link>
-                .
-              </p>
+              <div className="mt-4 space-y-1 border-t border-line pt-3 text-xs text-muted">
+                <p>
+                  Deze knop gaat naar {product.merchantName}; daar rond je de aankoop af. Meer over onze
+                  werkwijze staat op de{' '}
+                  <Link href="/affiliateverklaring" className="underline hover:text-accent">
+                    affiliatepagina
+                  </Link>
+                  .
+                </p>
+                {/* Alleen zichtbaar met AFFILIATE_LINKS_ENABLED=true. */}
+                <AffiliateDisclosure />
+              </div>
             </div>
 
             {product.pricing && !product.pricing.isActive ? (
@@ -245,20 +250,45 @@ export default async function ProductPage({ params }: Props) {
           ) : null}
 
           {product.offers.length > 1 ? (
-            <div className="mt-5">
-              <h3 className="text-sm font-semibold">Alle aanbiedingen</h3>
-              <ul className="mt-2 space-y-2" role="list">
-                {product.offers.map((offer) => (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold">Prijzen bij aanbieders</h3>
+              <p className="mt-1 text-xs text-muted">
+                {product.priceAnalysis?.comparisonBasis === 'prijs-en-verzending'
+                  ? 'Vergeleken op prijs inclusief verzendkosten.'
+                  : 'Vergeleken op productprijs; verzendkosten zijn niet bij elke aanbieder bekend.'}
+              </p>
+              <ul className="mt-3 space-y-2" role="list">
+                {product.offers.map((offer, index) => (
                   <li
                     key={offer.offerId}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-tile border border-line px-3 py-2"
                   >
-                    <span className="text-sm text-ink">{offer.merchantName}</span>
-                    <span className="text-sm font-semibold">{offer.pricing.currentPrice}</span>
+                    <div className="min-w-0">
+                      <p className="flex flex-wrap items-center gap-2 text-sm text-ink">
+                        <span className="font-medium">{offer.merchantName}</span>
+                        {offer.isCheapest ? (
+                          <span className="rounded-pill bg-deal-soft px-2 py-0.5 text-[11px] font-semibold text-deal">
+                            Goedkoopst
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {offer.pricing.inStock ? 'Op voorraad' : 'Niet op voorraad'}
+                        {offer.availabilityLabel ? ` · ${offer.availabilityLabel}` : ''} · Laatst{' '}
+                        {offer.pricing.checkedAtLabel}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-ink">{offer.pricing.currentPrice}</p>
+                      {offer.shippingLabel ? (
+                        <p className="text-xs text-muted">{offer.shippingLabel}</p>
+                      ) : null}
+                    </div>
                     <DealCta
                       offerId={offer.offerId}
                       pricing={offer.pricing}
-                      source="product-aanbiedingen"
+                      source="product_offers"
+                      position={index + 1}
                       merchantName={offer.merchantName}
                     />
                   </li>
@@ -266,6 +296,107 @@ export default async function ProductPage({ params }: Props) {
               </ul>
             </div>
           ) : null}
+        </section>
+      </Container>
+
+      {product.priceAnalysis ? (
+        <Container className="pt-8">
+          <section className="rounded-card border border-line bg-card p-5 sm:p-6">
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+              <LineChart aria-hidden className="size-4 text-accent" />
+              Onze prijsanalyse
+            </h2>
+            <p className="mt-1 text-xs text-muted">
+              Berekend uit onze eigen prijsmetingen. Wat de data niet draagt, staat er niet.
+            </p>
+            <ul className="mt-4 space-y-2" role="list">
+              {product.priceAnalysis.statements.map((statement) => (
+                <li
+                  key={statement.key}
+                  className={
+                    statement.tone === 'deal'
+                      ? 'text-sm font-medium text-deal'
+                      : 'text-sm text-muted'
+                  }
+                >
+                  {statement.text}
+                </li>
+              ))}
+            </ul>
+            <dl className="mt-5 grid gap-4 border-t border-line pt-4 text-xs text-muted sm:grid-cols-4">
+              <div>
+                <dt className="font-semibold text-ink">Metingen</dt>
+                <dd>{product.priceAnalysis.numberOfObservedPrices}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-ink">Historie</dt>
+                <dd>
+                  {product.priceAnalysis.historyDays === 0
+                    ? 'minder dan een dag'
+                    : `${product.priceAnalysis.historyDays} dag(en)`}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-ink">Aanbieders</dt>
+                <dd>{product.priceAnalysis.numberOfComparedMerchants}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-ink">Betrouwbaarheid</dt>
+                <dd>
+                  {product.priceAnalysis.confidenceLevel === 'HIGH'
+                    ? 'hoog'
+                    : product.priceAnalysis.confidenceLevel === 'MEDIUM'
+                      ? 'gemiddeld'
+                      : 'laag'}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </Container>
+      ) : null}
+
+      <Container className="pt-8">
+        <section className="rounded-card border border-line bg-canvas p-5 sm:p-6">
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <Database aria-hidden className="size-4 text-muted" />
+            Waar deze gegevens vandaan komen
+          </h2>
+          <ul className="mt-3 space-y-1.5 text-sm text-muted" role="list">
+            <li>
+              Productgegevens: {product.sources.labels.length > 0 ? product.sources.labels.join(', ') : 'brondata van de aanbieder'}
+            </li>
+            <li>
+              Prijzen laatst gecontroleerd:{' '}
+              {product.sources.lastCheckedAt
+                ? new Intl.DateTimeFormat('nl-NL', {
+                    day: 'numeric',
+                    month: 'long',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZone: 'Europe/Amsterdam',
+                  }).format(product.sources.lastCheckedAt)
+                : 'nog niet gecontroleerd'}
+            </li>
+            <li>
+              Prijsdata beschikbaar sinds:{' '}
+              {product.sources.priceDataSince
+                ? new Intl.DateTimeFormat('nl-NL', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                    timeZone: 'Europe/Amsterdam',
+                  }).format(product.sources.priceDataSince)
+                : 'nog geen historie'}
+            </li>
+            <li>Aantal vergeleken aanbieders: {product.sources.merchantCount}</li>
+            <li>
+              {product.sources.experienceType === 'HANDS_ON_TESTED'
+                ? 'Dit product is door onze redactie zelf gebruikt.'
+                : product.sources.experienceType === 'DESK_RESEARCHED'
+                  ? 'Dit product is niet door ons getest; wij baseren ons op brondata en eigen prijsmetingen.'
+                  : 'Dit product is niet door ons getest.'}
+            </li>
+          </ul>
         </section>
       </Container>
 
@@ -282,7 +413,7 @@ export default async function ProductPage({ params }: Props) {
             href={`/categorie/${product.categorySlug}`}
             linkLabel="Naar de categorie"
           />
-          <ProductGrid products={related} surface="product-gerelateerd" />
+          <ProductGrid products={related} surface="product_related" />
         </Container>
       ) : null}
 

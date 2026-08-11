@@ -23,7 +23,7 @@ export function HeroFind({ product, editionDate, isToday }: Props) {
   return (
     <section aria-labelledby="hero-titel" className="relative">
       <div className="relative overflow-hidden rounded-card border border-line bg-card">
-        <ImpressionTracker productId={product.id} surface="hero" position={0} />
+        <ImpressionTracker productId={product.id} surface="home_hero" position={0} />
         <div className="grid gap-0 lg:grid-cols-2">
           <div className="relative bg-canvas p-4 sm:p-6 lg:p-8">
             {/* Bewust geen fullscreenhero: het beeld blijft begrensd zodat de
@@ -76,7 +76,7 @@ export function HeroFind({ product, editionDate, isToday }: Props) {
               <DealCta
                 offerId={product.offerId}
                 pricing={product.pricing}
-                source="hero"
+                source="home_hero"
                 merchantName={product.merchantName}
                 size="large"
               />

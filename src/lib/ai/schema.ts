@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { ExperienceType } from '@prisma/client'
 import { looksDutch } from '@/lib/ai/language'
 import { wordCount } from '@/lib/utils'
 
@@ -77,15 +78,60 @@ export type ContentBlocker = {
 }
 
 /**
+ * Formuleringen die eerstehandservaring suggereren. Deze mogen alleen in de
+ * tekst staan wanneer de redactie het product echt heeft gebruikt
+ * (`experienceType = HANDS_ON_TESTED`).
+ */
+const firstHandPatterns: readonly RegExp[] = [
+  // "Wij hebben dit product zelf gebruikt", maar ook "wij hebben deze tafel getest".
+  // "Gemeten" staat er bewust niet bij: prijzen meten is juist wat wij doen.
+  /\bwij hebben\b[^.!?]{0,60}\b(getest|gebruikt|geprobeerd|uitgeprobeerd)\b/i,
+  /\bzelf (getest|gebruikt|geprobeerd|uitgeprobeerd)\b/i,
+  /\bin (onze|mijn) (test|ervaring)\b/i,
+  /\bonze (eigen )?(test|ervaring|bevindingen)\b/i,
+  // "Wij vonden de rand te smal" is een oordeel; "wij vonden geen
+  // vergelijkingsprijs" gaat over onze data en mag wel.
+  /\bwij vonden (?!geen\b)/i,
+  /\bwij (merkten|hoorden|voelden|ervoeren)\b/i,
+  /\btijdens (ons|het) (gebruik|testen)\b/i,
+  /\bna (een|twee|drie|enkele) (dag|dagen|week|weken|maand|maanden) gebruik\b/i,
+]
+
+/**
+ * Blokkeert tekst die eigen ervaring suggereert zonder dat wij het product
+ * hebben gebruikt. Dit is een harde regel: liever geen tekst dan een verzonnen
+ * ervaring.
+ */
+export function findExperienceClaims(
+  payload: EditorialContentPayload,
+  experienceType: ExperienceType = 'NOT_TESTED',
+): ContentBlocker[] {
+  if (experienceType === 'HANDS_ON_TESTED') return []
+  const blockers: ContentBlocker[] = []
+  for (const field of prose) {
+    if (firstHandPatterns.some((pattern) => pattern.test(payload[field]))) {
+      blockers.push({
+        field,
+        message: `suggereert eigen ervaring, maar dit product is ${experienceType === 'DESK_RESEARCHED' ? 'alleen bureauonderzoek' : 'niet door ons getest'}`,
+      })
+    }
+  }
+  return blockers
+}
+
+/**
  * Harde kwaliteitspoort voor gegenereerde content. Anders dan
  * {@link checkContentStyle} is dit geen advies: wat hier wordt geblokkeerd komt
  * niet in de database en zet het product op `NEEDS_REVIEW`.
  *
  * Geblokkeerd wordt: lege of vulveldtekst, placeholders en HTML, tekst die niet
- * Nederlands is, gekopieerde velden, prijzen of kortingspercentages, en
- * dezelfde zin die zich blijft herhalen.
+ * Nederlands is, gekopieerde velden, prijzen of kortingspercentages, dezelfde
+ * zin die zich blijft herhalen, en eerstehandservaring die wij niet hebben.
  */
-export function findContentBlockers(payload: EditorialContentPayload): ContentBlocker[] {
+export function findContentBlockers(
+  payload: EditorialContentPayload,
+  options: { experienceType?: ExperienceType } = {},
+): ContentBlocker[] {
   const blockers: ContentBlocker[] = []
 
   for (const field of prose) {
@@ -133,6 +179,8 @@ export function findContentBlockers(payload: EditorialContentPayload): ContentBl
     blockers.push({ field: 'tags', message: 'lege waarde in tags' })
   }
 
+  blockers.push(...findExperienceClaims(payload, options.experienceType))
+
   return blockers
 }
 
@@ -141,8 +189,11 @@ export type ContentValidation =
   | { ok: false; blockers: ContentBlocker[]; reasons: string[] }
 
 /** Handige wrapper: `ok` plus leesbare redenen voor de log en het adminpaneel. */
-export function validateEditorialContent(payload: EditorialContentPayload): ContentValidation {
-  const blockers = findContentBlockers(payload)
+export function validateEditorialContent(
+  payload: EditorialContentPayload,
+  options: { experienceType?: ExperienceType } = {},
+): ContentValidation {
+  const blockers = findContentBlockers(payload, options)
   if (blockers.length === 0) return { ok: true }
   return {
     ok: false,

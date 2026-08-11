@@ -40,8 +40,15 @@ function backoffDelay(attempt: number): number {
   return Math.min(8_000, 2 ** attempt * 500)
 }
 
-/** Haalt tekst op met retries; gooit na de laatste poging. */
-export async function fetchText(url: string, options: FetchTextOptions = {}): Promise<string> {
+/**
+ * Eén verzoek met retries; de aanroeper bepaalt wat er met het antwoord gebeurt.
+ * Zo delen tekst- en binaire downloads exact dezelfde regels.
+ */
+async function request<T>(
+  url: string,
+  options: FetchTextOptions,
+  read: (response: Response) => Promise<T>,
+): Promise<T> {
   const env = serverEnv()
   const parsed = new URL(url)
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -69,7 +76,7 @@ export async function fetchText(url: string, options: FetchTextOptions = {}): Pr
       if (!response.ok) {
         throw new HttpError(`HTTP ${response.status} voor ${url}`, response.status)
       }
-      return await response.text()
+      return await read(response)
     } catch (error) {
       lastError = error
       // 4xx (behalve 429) opnieuw proberen heeft geen zin.
@@ -91,7 +98,18 @@ export async function fetchText(url: string, options: FetchTextOptions = {}): Pr
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
+/** Haalt tekst op met retries; gooit na de laatste poging. */
+export async function fetchText(url: string, options: FetchTextOptions = {}): Promise<string> {
+  return request(url, options, (response) => response.text())
+}
+
+/** Haalt bytes op; nodig voor gecomprimeerde feeds. */
+export async function fetchBinary(url: string, options: FetchTextOptions = {}): Promise<Uint8Array> {
+  return request(url, options, async (response) => new Uint8Array(await response.arrayBuffer()))
+}
+
 export async function fetchJson<T = unknown>(url: string, options: FetchTextOptions = {}): Promise<T> {
   const body = await fetchText(url, { ...options, headers: { accept: 'application/json', ...options.headers } })
-  return JSON.parse(body) as T
+  // Een BOM aan het begin laat JSON.parse struikelen; feeds hebben die vaak.
+  return JSON.parse(body.replace(/^﻿/, '')) as T
 }

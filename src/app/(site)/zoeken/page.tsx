@@ -61,7 +61,7 @@ export default async function SearchPage({
             <p className="mb-6 text-sm text-muted">
               {results.length} {results.length === 1 ? 'resultaat' : 'resultaten'} voor “{query}”
             </p>
-            <ProductGrid products={results} surface="zoeken" priorityCount={2} />
+            <ProductGrid products={results} surface="search" priorityCount={2} />
           </>
         )}
       </div>

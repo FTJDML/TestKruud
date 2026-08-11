@@ -1,8 +1,8 @@
 # Beveiliging
 
-HomeAndLivingDeals.nl verkoopt zelf niets, heeft geen gebruikersaccounts en
-verwerkt geen betalingen. Er is dus geen betaalgegeven en geen wachtwoord van
-een bezoeker te stelen. Wat er wél te beschermen valt: het adminpaneel, de
+HomeAndLivingDeals.nl heeft geen gebruikersaccounts en verwerkt geen
+betalingen; aankopen lopen bij de aanbieder. Er is dus geen betaalgegeven en
+geen wachtwoord van een bezoeker te stelen. Wat er wél te beschermen valt: het adminpaneel, de
 database, de uitgaande links en de secrets.
 
 ## Een kwetsbaarheid melden

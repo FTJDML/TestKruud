@@ -90,8 +90,10 @@ describe('templateprovider', () => {
     const result = buildTemplateContent(facts)
     expect(editorialContentSchema.safeParse(result.content).success).toBe(true)
     expect(result.provider).toBe('template')
-    // Templatecontent is voorlopig en moet altijd beoordeeld worden.
-    expect(result.needsReview).toBe(true)
+    // Deterministische content uit gecontroleerde feiten hoeft niet op review te
+    // wachten; dat geldt alleen voor echte AI-content.
+    expect(result.needsReview).toBe(false)
+    expect(result.model).toBeNull()
   })
 
   it('houdt zich aan de lengterichtlijnen', () => {

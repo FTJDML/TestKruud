@@ -42,6 +42,14 @@ const serverSchema = z.object({
   /** Draaiuur (0-23, Europe/Amsterdam) van de worker; zie src/jobs/worker.ts. */
   WORKER_DAILY_HOUR: z.coerce.number().int().min(0).max(23).default(6),
   WORKER_DAILY_MINUTE: z.coerce.number().int().min(0).max(59).default(15),
+  /** Grenzen van de dagelijkse editie; zie src/lib/deals/edition.ts. */
+  EDITION_MIN_ADDITIONAL_ITEMS: z.coerce.number().int().min(1).max(100).default(8),
+  EDITION_TARGET_ADDITIONAL_ITEMS: z.coerce.number().int().min(1).max(100).default(16),
+  EDITION_MAX_ADDITIONAL_ITEMS: z.coerce.number().int().min(1).max(200).default(24),
+  MAX_PER_MERCHANT: z.coerce.number().int().min(1).max(50).default(3),
+  MAX_PER_CATEGORY: z.coerce.number().int().min(1).max(50).default(4),
+  /** Minimale breedte en hoogte van een productafbeelding. */
+  IMAGE_MIN_DIMENSION: z.coerce.number().int().min(100).max(4000).default(400),
 })
 
 type RawServerEnv = z.infer<typeof serverSchema>
@@ -113,6 +121,30 @@ export function adsEnabled(): boolean {
 
 export function affiliateLinksEnabled(): boolean {
   return serverEnv().AFFILIATE_LINKS_ENABLED
+}
+
+/**
+ * Grenzen van de dagelijkse editie uit de environment. De minimumwaarde wordt
+ * nooit hoger dan het doel, en het doel nooit hoger dan het maximum: een
+ * onmogelijke combinatie zou elke dag een lege homepage opleveren.
+ */
+export function editionLimitsFromEnv(env: ServerEnv = serverEnv()): {
+  maxPerCategory: number
+  maxPerMerchant: number
+  minAdditionalItems: number
+  targetAdditionalItems: number
+  maxAdditionalItems: number
+} {
+  const max = env.EDITION_MAX_ADDITIONAL_ITEMS
+  const target = Math.min(env.EDITION_TARGET_ADDITIONAL_ITEMS, max)
+  const min = Math.min(env.EDITION_MIN_ADDITIONAL_ITEMS, target)
+  return {
+    maxPerCategory: env.MAX_PER_CATEGORY,
+    maxPerMerchant: env.MAX_PER_MERCHANT,
+    minAdditionalItems: min,
+    targetAdditionalItems: target,
+    maxAdditionalItems: max,
+  }
 }
 
 /** Publieke, in de client beschikbare configuratie (NEXT_PUBLIC_*). */

@@ -1,5 +1,5 @@
 import { formatPriceValue } from '@/lib/pricing/money'
-import { absoluteUrl, siteName, siteTagline } from '@/lib/seo/metadata'
+import { absoluteImageUrl, absoluteUrl, siteName, siteTagline } from '@/lib/seo/metadata'
 import type { ProductCardView, ProductDetailView } from '@/types'
 
 /**
@@ -83,7 +83,8 @@ export function productJsonLd(product: ProductDetailView): JsonLdObject | null {
     '@type': 'Product',
     name: product.title,
     description: product.metaDescription,
-    image: [absoluteUrl(product.imageUrl)],
+    // Externe afbeeldingen blijven ongewijzigd; lokale paden worden absoluut.
+    image: [absoluteImageUrl(product.imageUrl)],
     category: product.category,
     ...(product.brand ? { brand: { '@type': 'Brand', name: product.brand } } : {}),
     ...(product.model ? { model: product.model } : {}),

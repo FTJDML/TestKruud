@@ -54,18 +54,27 @@ export default async function HomePage() {
     )
   }
 
-  const todayProducts = [...edition.today, ...edition.editorsPick].slice(0, 8)
+  // BEST_DEALS zijn geverifieerde deals; `today` is de historische naam en komt
+  // uit oudere edities. Beide horen in dezelfde sectie.
+  const dealProducts = [...edition.bestDeals, ...edition.today, ...edition.editorsPick].slice(0, 8)
+  const priceDrops = edition.latestPriceDrops.filter(
+    (product) => !dealProducts.some((entry) => entry.id === product.id),
+  )
   const moreProducts = [...edition.under100, ...edition.unnecessaryButGreat, ...edition.editorsPick.slice(2)]
     .filter((product, index, all) => all.findIndex((entry) => entry.id === product.id) === index)
-    .filter((product) => !todayProducts.some((entry) => entry.id === product.id))
+    .filter((product) => !dealProducts.some((entry) => entry.id === product.id))
+    .filter((product) => !priceDrops.some((entry) => entry.id === product.id))
     .slice(0, 12)
 
   // Een product komt maximaal één keer in een productraster op de homepage voor.
   const shownIds = new Set([
     edition.hero.id,
-    ...todayProducts.map((product) => product.id),
+    ...dealProducts.map((product) => product.id),
+    ...priceDrops.map((product) => product.id),
     ...moreProducts.map((product) => product.id),
   ])
+  const discoveryItems = edition.discovery.filter((product) => !shownIds.has(product.id))
+  for (const product of discoveryItems) shownIds.add(product.id)
   const popularItems = popular.items.filter((product) => !shownIds.has(product.id))
   for (const product of popularItems) shownIds.add(product.id)
   const newestItems = newest.filter((product) => !shownIds.has(product.id)).slice(0, 4)
@@ -75,7 +84,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <JsonLd data={itemListJsonLd([edition.hero, ...todayProducts], 'Vondsten van vandaag')} />
+      <JsonLd data={itemListJsonLd([edition.hero, ...dealProducts], 'Beste deals van vandaag')} />
 
       <Container className="pt-6 sm:pt-8">
         <HeroFind product={edition.hero} editionDate={edition.editionDate} isToday={edition.isToday} />
@@ -91,13 +100,23 @@ export default async function HomePage() {
 
       <Container className="pt-14">
         <SectionHeader
-          title="Vandaag ontdekt"
-          description="De selectie van vandaag, gekozen op originaliteit, bruikbaarheid en een prijs die klopt."
+          title="Beste deals van vandaag"
+          description="Producten met een echte vergelijkingsprijs, gecontroleerd op voorraad en versheid."
           href="/nieuw"
           linkLabel="Alle nieuwe vondsten"
         />
-        <ProductGrid products={todayProducts} surface="home-vandaag" priorityCount={2} />
+        <ProductGrid products={dealProducts} surface="home_best_deals" priorityCount={2} />
       </Container>
+
+      {priceDrops.length > 0 ? (
+        <Container className="pt-14">
+          <SectionHeader
+            title="Nieuwste prijsdalingen"
+            description="Prijzen die wij zelf zagen dalen sinds onze vorige meting."
+          />
+          <ProductGrid products={priceDrops} surface="home_latest_price_drops" />
+        </Container>
+      ) : null}
 
       {/* Eerste advertentiepositie: pas na acht productkaarten. */}
       <Container className="pt-12">
@@ -122,7 +141,17 @@ export default async function HomePage() {
             title="Meer vondsten"
             description="Nog een reeks producten uit de editie van vandaag, inclusief de goedkopere upgrades."
           />
-          <ProductGrid products={moreProducts} surface="home-meer" />
+          <ProductGrid products={moreProducts} surface="home_more" />
+        </Container>
+      ) : null}
+
+      {discoveryItems.length > 0 ? (
+        <Container className="pt-14">
+          <SectionHeader
+            title="Bijzondere vondsten"
+            description="Producten die opvallen zonder dat er een vergelijkingsprijs bij hoort. Geen korting, wel de moeite."
+          />
+          <ProductGrid products={discoveryItems} surface="home_discovery" />
         </Container>
       ) : null}
 
@@ -143,7 +172,7 @@ export default async function HomePage() {
           />
           <ProductGrid
             products={popularItems}
-            surface={popular.isReal ? 'home-populair' : 'home-favorieten'}
+            surface={popular.isReal ? 'home_popular' : 'home_editors'}
           />
         </Container>
       ) : null}
@@ -156,7 +185,7 @@ export default async function HomePage() {
             href="/nieuw"
             linkLabel="Bekijk alles"
           />
-          <ProductGrid products={newestItems} surface="home-nieuw" />
+          <ProductGrid products={newestItems} surface="home_new" />
         </Container>
       ) : null}
 

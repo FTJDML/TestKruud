@@ -61,7 +61,7 @@ export default async function CollectionPage({ params }: Props) {
             description="Deze collectie wordt gevuld zodra er passende producten voorbijkomen."
           />
         ) : (
-          <ProductGrid products={products} surface={`collectie-${collection.slug}`} priorityCount={2} />
+          <ProductGrid products={products} surface={`collection_${collection.slug}`} priorityCount={2} />
         )}
       </Container>
     </>

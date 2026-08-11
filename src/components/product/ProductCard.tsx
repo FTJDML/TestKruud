@@ -43,6 +43,7 @@ export function ProductCard({ product, surface, position, priority = false, clas
           <ProductImage
             src={product.imageUrl}
             alt={product.imageAlt}
+            productId={product.id}
             priority={priority}
             sizes="(min-width: 1280px) 300px, (min-width: 1024px) 30vw, (min-width: 640px) 45vw, 90vw"
           />
@@ -90,6 +91,7 @@ export function ProductCard({ product, surface, position, priority = false, clas
               offerId={product.offerId}
               pricing={product.pricing}
               source={surface}
+              position={position}
               merchantName={product.merchantName}
               className="flex-1"
             />

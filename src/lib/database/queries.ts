@@ -3,7 +3,10 @@ import { prisma } from '@/lib/database/client'
 import { looksDutch } from '@/lib/ai/language'
 import { categorySlugForName } from '@/lib/categories'
 import { demoContentEnabled } from '@/lib/env'
+import { checkPublicVisibility, publicProductFilter } from '@/lib/products/visibility'
 import { computeDealPricing, discountBadgeLabel, type DealPricing } from '@/lib/pricing/deal'
+import { analysisFromRecord } from '@/lib/analysis/from-record'
+import { priceStatements } from '@/lib/analysis/statements'
 import { toCents, formatMoney } from '@/lib/pricing/money'
 import { editorialScore } from '@/lib/deals/score'
 import { editionDate } from '@/lib/deals/edition-date'
@@ -31,9 +34,14 @@ const NEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000
 
 const productInclude = {
   editorial: true,
+  analysis: true,
   offers: {
     orderBy: { currentPrice: 'asc' },
-    include: { merchant: { select: { name: true, domain: true, enabled: true, sourceType: true } } },
+    include: {
+      merchant: {
+        select: { id: true, name: true, domain: true, enabled: true, sourceType: true },
+      },
+    },
   },
   _count: { select: { saves: true } },
 } satisfies Prisma.ProductInclude
@@ -41,17 +49,11 @@ const productInclude = {
 type ProductWithRelations = Prisma.ProductGetPayload<{ include: typeof productInclude }>
 
 /**
- * Basisfilter voor alles wat publiek zichtbaar is. Demo-producten verdwijnen
- * volledig zodra `DEMO_CONTENT_ENABLED` uit staat, wat de standaard is in
- * productie. Eén plek, zodat geen enkele publieke query het kan vergeten.
+ * Basisfilter voor alles wat publiek zichtbaar is: alleen PUBLISHED, alleen met
+ * een gevalideerde afbeelding, alleen met redactionele content, en zonder
+ * demo-inhoud zolang die uit staat. Zie src/lib/products/visibility.ts.
  */
-function publicProductWhere(extra: Prisma.ProductWhereInput = {}): Prisma.ProductWhereInput {
-  return {
-    status: 'PUBLISHED',
-    ...(demoContentEnabled() ? {} : { isDemo: false }),
-    ...extra,
-  }
-}
+const publicProductWhere = publicProductFilter
 
 function jsonStringArray(value: Prisma.JsonValue | null | undefined): string[] {
   if (!Array.isArray(value)) return []
@@ -126,6 +128,31 @@ function toDetailView(product: ProductWithRelations, now: Date, history: PriceHi
     .map(([label, value]) => ({ label, value: String(value) }))
 
   const best = bestOffer(product, now)
+  const usableOffers = product.offers.filter((offer) => offer.merchant.enabled)
+  const cheapestOfferId =
+    [...usableOffers]
+      .map((offer) => ({ offer, pricing: computeDealPricing(offer, now) }))
+      .filter((entry) => entry.pricing.isActive)
+      .sort((left, right) => left.pricing.currentPriceCents - right.pricing.currentPriceCents)[0]?.offer.id ??
+    null
+
+  // Verzendkosten alleen tonen wanneer élke actieve aanbieding ze meelevert;
+  // anders zou de vergelijking scheef staan.
+  const shippingKnownForAll =
+    usableOffers.length > 0 && usableOffers.every((offer) => offer.shippingCost !== null)
+
+  const analysis = product.analysis
+    ? analysisFromRecord(product.analysis, shippingKnownForAll ? 'prijs-en-verzending' : 'prijs')
+    : null
+
+  const sourceLabels = new Set<string>()
+  for (const offer of usableOffers) {
+    if (offer.merchant.sourceType === 'FIXTURE') sourceLabels.add('demo-fixture')
+    else if (offer.merchant.sourceType === 'API') sourceLabels.add('merchant-API')
+    else sourceLabels.add('merchantfeed')
+  }
+  if (analysis && analysis.numberOfObservedPrices > 1) sourceLabels.add('eigen prijsmeting')
+
   return {
     ...card,
     brand: product.brand,
@@ -147,15 +174,80 @@ function toDetailView(product: ProductWithRelations, now: Date, history: PriceHi
     // Alleen fixturebronnen leveren verzonnen productgegevens; een ingelezen
     // democatalogus levert echte titels, prijzen en foto's.
     demoOrigin: best?.offer.merchant.sourceType === 'FIXTURE' ? 'fictief' : 'bron',
-    offers: product.offers
-      .filter((offer) => offer.merchant.enabled)
+    priceAnalysis: analysis
+      ? {
+          statements: priceStatements(analysis, now),
+          numberOfObservedPrices: analysis.numberOfObservedPrices,
+          numberOfComparedMerchants: analysis.numberOfComparedMerchants,
+          historyDays: analysis.historyDays,
+          firstSeenAt: analysis.firstSeenAt,
+          lastSeenAt: analysis.lastSeenAt,
+          lastPriceChangeAt: analysis.lastPriceChangeAt,
+          confidenceLevel: analysis.confidenceLevel,
+          comparisonBasis: analysis.comparisonBasis,
+          calculatedAt: analysis.calculatedAt,
+          analysisVersion: analysis.analysisVersion,
+        }
+      : null,
+    sources: {
+      labels: [...sourceLabels],
+      lastCheckedAt: best?.pricing.checkedAt ?? null,
+      priceDataSince: analysis?.firstSeenAt ?? null,
+      merchantCount: new Set(usableOffers.map((offer) => offer.merchant.id)).size,
+      experienceType: product.experienceType,
+    },
+    offers: usableOffers
       .map((offer) => ({
         offerId: offer.id,
         merchantName: offer.merchant.name,
         pricing: computeDealPricing(offer, now),
+        shippingLabel:
+          offer.shippingCost === null
+            ? null
+            : (toCents(offer.shippingCost) ?? 0) === 0
+              ? 'gratis verzending'
+              : `+ ${formatMoney(toCents(offer.shippingCost) ?? 0)} verzending`,
+        availabilityLabel: offer.availabilityLabel,
+        isCheapest: offer.id === cheapestOfferId,
       }))
       .sort((left, right) => left.pricing.currentPriceCents - right.pricing.currentPriceCents),
   }
+}
+
+/**
+ * Vergelijkbare producten: zelfde categorie, vergelijkbare prijsklasse, en
+ * alleen wat publiek geldig is. Bewust op gecontroleerde gegevens en niet op een
+ * AI-oordeel.
+ */
+export async function getComparableProducts(
+  product: Pick<ProductDetailView, 'id' | 'category' | 'pricing'>,
+  limit = 4,
+): Promise<ProductCardView[]> {
+  const priceCents = product.pricing?.currentPriceCents ?? null
+  const candidates = await prisma.product.findMany({
+    where: publicProductFilter({ id: { not: product.id }, primaryCategory: product.category }),
+    include: productInclude,
+    take: 40,
+  })
+
+  const now = new Date()
+  const views = candidates.map((entry) => toCardView(entry, { now }))
+  if (priceCents === null) return views.slice(0, limit)
+
+  // Zelfde prijsklasse: tot 40% er onder of boven, en op voorraad.
+  const inRange = views
+    .filter((view) => view.pricing !== null && view.pricing.isActive)
+    .map((view) => ({ view, distance: Math.abs((view.pricing?.currentPriceCents ?? 0) - priceCents) }))
+    .filter(({ view }) => {
+      const value = view.pricing?.currentPriceCents ?? 0
+      return value >= priceCents * 0.6 && value <= priceCents * 1.4
+    })
+    .sort((left, right) => left.distance - right.distance)
+    .map(({ view }) => view)
+
+  if (inRange.length >= limit) return inRange.slice(0, limit)
+  const rest = views.filter((view) => !inRange.some((entry) => entry.id === view.id))
+  return [...inRange, ...rest].slice(0, limit)
 }
 
 /** De actuele editie: die van vandaag, of anders de laatst gepubliceerde. */
@@ -174,11 +266,18 @@ export async function getCurrentEdition(now: Date = new Date()): Promise<Edition
 
   if (!edition) return null
 
-  // Demo-producten uit een oudere editie verdwijnen mee wanneer demo-inhoud uit
-  // staat; de editie zelf blijft bestaan.
-  const visible = demoContentEnabled()
-    ? edition.items
-    : edition.items.filter((item) => !item.product.isDemo)
+  // Een editie-item verdwijnt zodra het product niet meer publiek geldig is:
+  // teruggetrokken, kapotte afbeelding, of demo-inhoud die uit staat. De editie
+  // zelf blijft bestaan.
+  const visible = edition.items.filter(
+    (item) =>
+      checkPublicVisibility({
+        status: item.product.status,
+        imageStatus: item.product.imageStatus,
+        isDemo: item.product.isDemo,
+        hasEditorial: item.product.editorial !== null,
+      }).visible,
+  )
   const sorted = [...visible].sort((left, right) => left.position - right.position)
   const section = (name: string) =>
     sorted
@@ -190,19 +289,32 @@ export async function getCurrentEdition(now: Date = new Date()): Promise<Edition
     editionDate: edition.editionDate,
     isToday: edition.editionDate.getTime() === today.getTime(),
     hero: heroItem ? toCardView(heroItem.product, { isHero: true, now }) : null,
-    today: section('TODAY'),
+    bestDeals: section('BEST_DEALS'),
+    latestPriceDrops: section('LATEST_PRICE_DROPS'),
     editorsPick: section('EDITORS_PICK'),
     under100: section('UNDER_100'),
     unnecessaryButGreat: section('UNNECESSARY_BUT_GREAT'),
+    discovery: section('DISCOVERY'),
+    today: section('TODAY'),
   }
 }
 
+/**
+ * De publieke productpagina. Levert `null` voor alles wat niet publiek is;
+ * de pagina maakt daar een echte 404 van. Voor het adminpaneel is er
+ * {@link getProductBySlugForPreview}.
+ */
 export async function getProductBySlug(slug: string): Promise<ProductDetailView | null> {
   const product = await prisma.product.findUnique({ where: { slug }, include: productInclude })
   if (!product) return null
-  if (product.status === 'REJECTED' || product.status === 'CANDIDATE') return null
-  // Zonder demo-inhoud bestaat een demo-productpagina niet; dat levert een 404.
-  if (product.isDemo && !demoContentEnabled()) return null
+
+  const verdict = checkPublicVisibility({
+    status: product.status,
+    imageStatus: product.imageStatus,
+    isDemo: product.isDemo,
+    hasEditorial: product.editorial !== null,
+  })
+  if (!verdict.visible) return null
 
   const now = new Date()
   const offerIds = product.offers.map((offer) => offer.id)
@@ -432,10 +544,13 @@ export async function getSavedProductIds(visitorId: string): Promise<string[]> {
   return saves.map((save) => save.productId)
 }
 
-/** Voor sitemap: alleen publiceerbare, niet-demo producten. */
+/**
+ * Voor de sitemap: alleen producten die publiek geldig zijn én geen demo-inhoud.
+ * Een product met een kapotte afbeelding of zonder content staat er dus niet in.
+ */
 export async function getIndexableProducts(): Promise<Array<{ slug: string; updatedAt: Date }>> {
   return prisma.product.findMany({
-    where: { status: 'PUBLISHED', isDemo: false },
+    where: publicProductFilter({ isDemo: false }),
     select: { slug: true, updatedAt: true },
     orderBy: { updatedAt: 'desc' },
   })

@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_PER_CATEGORY,
-  MAX_PER_MERCHANT,
-  MIN_ADDITIONAL_ITEMS,
+  DEAL_SECTIONS,
+  DEFAULT_EDITION_LIMITS,
   isPublishableSelection,
   selectEdition,
   type EditionCandidate,
 } from '@/lib/deals/edition'
+
+const { maxPerCategory: MAX_PER_CATEGORY, maxPerMerchant: MAX_PER_MERCHANT } = DEFAULT_EDITION_LIMITS
+const MIN_ADDITIONAL_ITEMS = DEFAULT_EDITION_LIMITS.minAdditionalItems
 import type { ScoreInput } from '@/lib/deals/score'
 import { editionDate, editionDateKey } from '@/lib/deals/edition-date'
 
@@ -103,7 +105,7 @@ describe('editieselectie', () => {
     expect(selection.hero).not.toBeNull()
     expect(selection.hero?.section).toBe('HERO')
     expect(selection.items.length).toBeGreaterThanOrEqual(MIN_ADDITIONAL_ITEMS)
-    expect(selection.items.some((item) => item.section === 'TODAY')).toBe(true)
+    expect(selection.items.some((item) => item.section === 'BEST_DEALS')).toBe(true)
     expect(isPublishableSelection(selection)).toBe(true)
   })
 
@@ -112,15 +114,57 @@ describe('editieselectie', () => {
     expect(isPublishableSelection(selection)).toBe(false)
   })
 
-  it('sluit producten zonder geldige dealprijs uit', () => {
+  it('houdt een product zonder geldige dealprijs uit de dealssecties', () => {
     const pool = [
       ...buildPool(20),
       makeCandidate({ productId: 'geen-deal', title: 'Product zonder vergelijkingsprijs', qualifiesAsDeal: false }),
     ]
     const selection = selectEdition(pool, now)
-    const chosen = [selection.hero, ...selection.items].map((item) => item?.productId)
-    expect(chosen).not.toContain('geen-deal')
-    expect(selection.skipped.some((entry) => entry.reason === 'geen geldige dealprijs')).toBe(true)
+
+    // Het product mag wel in de editie staan, maar nooit als hero en nooit in
+    // een sectie die een geverifieerde deal belooft.
+    expect(selection.hero?.productId).not.toBe('geen-deal')
+    const item = selection.items.find((entry) => entry.productId === 'geen-deal')
+    if (item) {
+      expect(['DISCOVERY', 'UNNECESSARY_BUT_GREAT', 'EDITORS_PICK']).toContain(item.section)
+      expect(['BEST_DEALS', 'LATEST_PRICE_DROPS']).not.toContain(item.section)
+    }
+  })
+
+  it('zet een verse prijsdaling in LATEST_PRICE_DROPS', () => {
+    const pool = [
+      ...buildPool(20),
+      makeCandidate({
+        productId: 'gedaald',
+        title: 'Product met verse prijsdaling',
+        dealDetectedAt: new Date(now.getTime() - 60 * 60 * 1000),
+      }),
+    ]
+    const selection = selectEdition(pool, now)
+    const chosen = [selection.hero, ...selection.items].find((item) => item?.productId === 'gedaald')
+    expect(chosen).toBeDefined()
+    expect(['HERO', 'LATEST_PRICE_DROPS']).toContain(chosen?.section)
+  })
+
+  it('respecteert een aangepast minimum en maximum', () => {
+    const pool = buildPool(24)
+    const strict = selectEdition(pool, now, {
+      maxPerCategory: 4,
+      maxPerMerchant: 3,
+      minAdditionalItems: 8,
+      targetAdditionalItems: 10,
+      maxAdditionalItems: 10,
+    })
+    expect(strict.items.length).toBeLessThanOrEqual(10)
+    expect(
+      isPublishableSelection(strict, {
+        maxPerCategory: 4,
+        maxPerMerchant: 3,
+        minAdditionalItems: 8,
+        targetAdditionalItems: 10,
+        maxAdditionalItems: 10,
+      }),
+    ).toBe(true)
   })
 
   it('houdt maximaal vier producten per categorie aan', () => {
@@ -189,6 +233,110 @@ describe('editieselectie', () => {
     const second = selectEdition([...pool].reverse(), now)
     expect(first.hero?.productId).toBe(second.hero?.productId)
     expect(first.items.map((item) => item.productId)).toEqual(second.items.map((item) => item.productId))
+  })
+
+  it('haalt het minimum van acht aanvullende producten of publiceert niet', () => {
+    // Precies genoeg kandidaten voor hero plus het minimum.
+    const genoeg = selectEdition(buildPool(MIN_ADDITIONAL_ITEMS + 1), now)
+    expect(genoeg.hero).not.toBeNull()
+    expect(genoeg.items.length).toBeGreaterThanOrEqual(MIN_ADDITIONAL_ITEMS)
+    expect(isPublishableSelection(genoeg)).toBe(true)
+
+    // Eén kandidaat te weinig: dan blijft de vorige editie staan.
+    const teWeinig = selectEdition(buildPool(MIN_ADDITIONAL_ITEMS), now)
+    expect(teWeinig.items.length).toBeLessThan(MIN_ADDITIONAL_ITEMS)
+    expect(isPublishableSelection(teWeinig)).toBe(false)
+
+    // Ook een editie zonder hero wordt niet gepubliceerd.
+    const zonderHero = selectEdition(
+      buildPool(20).map((candidate) => ({ ...candidate, qualifiesAsDeal: false })),
+      now,
+    )
+    expect(zonderHero.hero).toBeNull()
+    expect(isPublishableSelection(zonderHero)).toBe(false)
+  })
+
+  it('laat dezelfde uitstekende deal meerdere dagen terugkomen', () => {
+    const pool = buildPool(24)
+    const vandaag = selectEdition(pool, now)
+    const morgen = selectEdition(pool, new Date(now.getTime() + 24 * 60 * 60 * 1000))
+    const overmorgen = selectEdition(pool, new Date(now.getTime() + 48 * 60 * 60 * 1000))
+
+    // Dezelfde beste deal mag opnieuw hero zijn: hem verstoppen om de
+    // afwisseling helpt de bezoeker niet.
+    expect(morgen.hero?.productId).toBe(vandaag.hero?.productId)
+    expect(overmorgen.hero?.productId).toBe(vandaag.hero?.productId)
+    expect(isPublishableSelection(morgen)).toBe(true)
+    expect(isPublishableSelection(overmorgen)).toBe(true)
+    // Er is niets in de selectie dat een product uitsluit omdat het gisteren al
+    // in de editie stond.
+    expect(morgen.skipped.map((entry) => entry.reason)).not.toContain('stond gisteren al in de editie')
+  })
+
+  it('tilt een oud product met een verse prijsdaling weer naar boven', () => {
+    const oud = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000)
+    const pool = [
+      ...buildPool(12).map((candidate) => ({
+        ...candidate,
+        score: { ...candidate.score, discoveredAt: oud },
+      })),
+      makeCandidate({
+        productId: 'oud-met-daling',
+        title: 'Tafelvuurkorf ethanol',
+        merchantId: 'merchant-daling',
+        category: 'Cadeaus',
+        dealDetectedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+        score: {
+          discoveredAt: oud,
+          lastPriceChangeAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+          dealDetectedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+        },
+      }),
+    ]
+    const selection = selectEdition(pool, now)
+    const chosen = [selection.hero, ...selection.items].find((item) => item?.productId === 'oud-met-daling')
+    expect(chosen).toBeDefined()
+    // Zonder de verse daling zou dit product met dezelfde scores onderaan staan.
+    const zonderDaling = selectEdition(
+      pool.map((candidate) =>
+        candidate.productId === 'oud-met-daling'
+          ? {
+              ...candidate,
+              dealDetectedAt: null,
+              score: { ...candidate.score, dealDetectedAt: null, lastPriceChangeAt: null },
+            }
+          : candidate,
+      ),
+      now,
+    )
+    const zonder = [zonderDaling.hero, ...zonderDaling.items].find(
+      (item) => item?.productId === 'oud-met-daling',
+    )
+    expect(chosen!.score).toBeGreaterThan(zonder!.score)
+  })
+
+  it('belooft in DISCOVERY geen korting die er niet is', () => {
+    const pool = [
+      ...buildPool(16),
+      makeCandidate({
+        productId: 'discovery',
+        title: 'Wolkenlamp bliksem',
+        merchantId: 'merchant-discovery',
+        category: 'Onnodig Maar Geweldig',
+        qualifiesAsDeal: false,
+        score: {
+          // Zonder referentieprijs is er geen kortingspercentage; dat mag de
+          // score niet stilzwijgend opkrikken.
+          discountPercentage: null,
+          hasValidReferencePrice: false,
+        },
+      }),
+    ]
+    const selection = selectEdition(pool, now)
+    const item = selection.items.find((entry) => entry.productId === 'discovery')
+    expect(item).toBeDefined()
+    expect(DEAL_SECTIONS).not.toContain(item?.section)
+    expect(selection.hero?.productId).not.toBe('discovery')
   })
 })
 

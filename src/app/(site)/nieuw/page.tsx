@@ -40,7 +40,7 @@ export default async function NewPage() {
             description="Zodra de dagelijkse job heeft gelopen, staan hier de nieuwste vondsten."
           />
         ) : (
-          <ProductGrid products={products} surface="nieuw" priorityCount={2} />
+          <ProductGrid products={products} surface="new_products" priorityCount={2} />
         )}
       </Container>
 
