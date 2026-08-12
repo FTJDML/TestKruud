@@ -170,10 +170,11 @@ const reviewerNotes =
   'Launchpagina, opgebouwd uit de geïmporteerde catalogus. Criteriumwaarden komen uit de specificaties van de fabrikant; prijzen uit handmatige controles. Lees de tekst na voordat je publiceert.'
 
 async function main(): Promise<void> {
-  if (isProductionEnv()) {
-    console.error('Dit script hoort in een acceptatie- of stagingomgeving, niet in productie.')
-    process.exitCode = 1
-    return
+  // In productie mag dit script pagina's wél opbouwen, maar niet publiceren: de
+  // tekst is een concept en hoort door een mens gelezen te worden in /admin.
+  const allowPublish = !isProductionEnv()
+  if (!allowPublish) {
+    console.info('Productieomgeving: de pagina\'s komen als concept binnen en worden niet gepubliceerd.')
   }
 
   const now = new Date()
@@ -242,7 +243,12 @@ async function main(): Promise<void> {
     // Goedkoopste eerst: dat leest bij een budgetpagina het prettigst.
     inputs.sort((left, right) => (left.currentPriceCents ?? Infinity) - (right.currentPriceCents ?? Infinity))
 
-    const result = await buildEditorialPage(prisma, page, inputs, { sourceIds, reviewerNotes, now })
+    const result = await buildEditorialPage(prisma, page, inputs, {
+      sourceIds,
+      reviewerNotes,
+      now,
+      allowPublish,
+    })
     console.info(
       `${result.slug}: ${result.status}, ${result.products} producten, ${result.verifiedValues} gecontroleerde waarden, ${result.notProvidedValues} × niet opgegeven, ${result.indexable ? 'indexeerbaar' : 'niet indexeerbaar'}`,
     )

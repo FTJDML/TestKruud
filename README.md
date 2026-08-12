@@ -1543,6 +1543,21 @@ op de productpagina.
 | offer zonder van-prijs | DISCOVERY: prijs en CTA "Bekijk product bij …", geen streepprijs, geen percentage |
 | offer met geldige hogere van-prijs, recent gecontroleerd en op voorraad | DEAL: prijs, van-prijs, korting en dealknop |
 
+### Op de live server
+
+Beide imports draaien ook in productie: daar hoort de echte catalogus juist te
+staan. Om te voorkomen dat het per ongeluk gebeurt, vragen zij daar een expliciete
+bevestiging:
+
+```bash
+pnpm launch:icecat --file data/open-icecat-export.csv --production
+pnpm launch:offers --file data/launch-offers.csv --production
+```
+
+`pnpm launch:editorial` bouwt in productie wél de pagina's op, maar publiceert ze
+niet: zij komen als concept binnen en een mens zet ze live via `/admin/redactie`,
+na de tekst te hebben gelezen.
+
 ### Stap 3: publiceren en pagina's vullen
 
 ```bash

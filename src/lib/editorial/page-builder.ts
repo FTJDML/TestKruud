@@ -73,7 +73,16 @@ export async function buildEditorialPage(
   prisma: PrismaClient,
   definition: PageDefinition,
   products: readonly PageProductInput[],
-  options: { sourceIds: readonly string[]; reviewerNotes: string; now?: Date },
+  options: {
+    sourceIds: readonly string[]
+    reviewerNotes: string
+    now?: Date
+    /**
+     * Mag dit script publiceren? In productie niet: daar zet een mens een pagina
+     * live via het adminpaneel, na de tekst te hebben gelezen.
+     */
+    allowPublish?: boolean
+  },
 ): Promise<BuildResult> {
   const now = options.now ?? new Date()
   const archetype = archetypeFor(definition.type)
@@ -249,7 +258,11 @@ export async function buildEditorialPage(
   const problems = findDraftProblems(result.draft, facts)
   if (problems.length > 0) reasons.push(`concept afgekeurd: ${problems.join('; ')}`)
 
-  const status = publishable && problems.length === 0 ? 'PUBLISHED' : 'DRAFT'
+  const allowPublish = options.allowPublish ?? true
+  if (!allowPublish) {
+    reasons.push('publiceren gebeurt door een mens in het adminpaneel, niet door dit script')
+  }
+  const status = allowPublish && publishable && problems.length === 0 ? 'PUBLISHED' : 'DRAFT'
   await prisma.editorialPage.update({
     where: { id: page.id },
     data: {

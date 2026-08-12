@@ -50,6 +50,11 @@ function flag(name: string): boolean {
   return args.includes(`--${name}`)
 }
 
+/** Bevestiging dat een import op de live database mag draaien. */
+function flagProduction(): boolean {
+  return flag('production')
+}
+
 function guessFormat(path: string): 'csv' | 'xml' | 'json' {
   const extension = extname(path).toLowerCase()
   if (extension === '.xml') return 'xml'
@@ -75,10 +80,17 @@ async function writeThumbnail(product: CatalogProduct): Promise<string | null> {
 }
 
 async function main(): Promise<void> {
-  if (isProductionEnv()) {
-    console.error('Deze import hoort in een acceptatie- of stagingomgeving, niet in productie.')
+  // Echte catalogusgegevens horen juist wél in productie. Alleen niet per
+  // ongeluk: in productie vraagt dit script een expliciete bevestiging.
+  if (isProductionEnv() && !flagProduction()) {
+    console.error(
+      'Dit is een productieomgeving. Voeg --production toe wanneer je deze import werkelijk op de live database wilt uitvoeren.',
+    )
     process.exitCode = 1
     return
+  }
+  if (isProductionEnv()) {
+    console.info('Productieomgeving: de import draait op de live database.')
   }
 
   const file = arg('file')
